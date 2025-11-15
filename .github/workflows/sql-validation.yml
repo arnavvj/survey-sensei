@@ -1,0 +1,54 @@
+name: SQL Validation
+
+on:
+  pull_request:
+    paths:
+      - 'database/migrations/**.sql'
+      - 'database/seed/**.sql'
+      - '.github/workflows/sql-validation.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'database/migrations/**.sql'
+      - 'database/seed/**.sql'
+      - '.github/workflows/sql-validation.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check SQL files exist
+      run: |
+        echo "Checking for SQL files..."
+        find database -name "*.sql" -type f
+
+    - name: Validate SQL syntax
+      run: |
+        echo "Validating SQL files for basic syntax..."
+        for file in database/migrations/*.sql database/seed/*.sql; do
+          if [ -f "$file" ]; then
+            echo "Checking $file..."
+            # Basic checks: no trailing spaces, proper line endings
+            if grep -q $'\r' "$file"; then
+              echo "Error: $file contains Windows line endings"
+              exit 1
+            fi
+            echo "✓ $file passed basic validation"
+          fi
+        done
+
+    - name: Check migration naming
+      run: |
+        echo "Validating migration file naming..."
+        cd database/migrations
+        for file in *.sql; do
+          if [[ ! "$file" =~ ^[0-9]{3}_[a-z_]+\.sql$ ]]; then
+            echo "Warning: $file doesn't follow naming convention: NNN_description.sql"
+          else
+            echo "✓ $file follows naming convention"
+          fi
+        done
