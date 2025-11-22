@@ -1,15 +1,16 @@
--- Survey Sensei Database Schema
--- Optimized for GenAI-powered survey generation
--- Phase 0: Initial Setup
+-- Migration: Enable PostgreSQL Extensions
+-- Required extensions for Survey Sensei
 
--- Enable necessary extensions
+-- UUID generation
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "vector"; -- For embeddings (pgvector)
 
--- =====================================================
--- PRODUCTS Table
+-- Vector embeddings (pgvector)
+CREATE EXTENSION IF NOT EXISTS "vector";
+
+
+-- Migration: Create PRODUCTS table
 -- Stores product/item information from various platforms
--- =====================================================
+
 CREATE TABLE IF NOT EXISTS products (
     item_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     source_platform VARCHAR(50) NOT NULL, -- amazon, shopify, walmart, etc.
@@ -22,27 +23,31 @@ CREATE TABLE IF NOT EXISTS products (
     review_count INTEGER DEFAULT 0,
     returns_count INTEGER DEFAULT 0,
     tags TEXT[], -- PostgreSQL array for better querying
-    embeddings vector(1536), -- OpenAI ada-002 dimension, adjust based on your model
+    embeddings vector(1536), -- OpenAI ada-002 dimension
 
     -- Metadata
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
-    -- Indexes for performance
+    -- Constraints
     CONSTRAINT check_review_count CHECK (review_count >= 0),
     CONSTRAINT check_returns_count CHECK (returns_count >= 0)
 );
 
 -- Indexes for products
-CREATE INDEX idx_products_source_platform ON products(source_platform);
-CREATE INDEX idx_products_brand ON products(brand);
-CREATE INDEX idx_products_tags ON products USING GIN(tags);
-CREATE INDEX idx_products_embeddings ON products USING ivfflat(embeddings vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS idx_products_source_platform ON products(source_platform);
+CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
+CREATE INDEX IF NOT EXISTS idx_products_tags ON products USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_products_embeddings ON products USING ivfflat(embeddings vector_cosine_ops) WITH (lists = 100);
 
--- =====================================================
--- USERS Table
+-- Comments
+COMMENT ON TABLE products IS 'Stores product information from various e-commerce platforms';
+COMMENT ON COLUMN products.embeddings IS 'Vector embeddings for semantic product search';
+
+
+-- Migration: Create USERS table
 -- Stores user demographic and profile information
--- =====================================================
+
 CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_name VARCHAR(255) NOT NULL,
@@ -67,14 +72,18 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Indexes for users
-CREATE INDEX idx_users_email ON users(email_id);
-CREATE INDEX idx_users_base_zip ON users(base_zip);
-CREATE INDEX idx_users_embeddings ON users USING ivfflat(embeddings vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email_id);
+CREATE INDEX IF NOT EXISTS idx_users_base_zip ON users(base_zip);
+CREATE INDEX IF NOT EXISTS idx_users_embeddings ON users USING ivfflat(embeddings vector_cosine_ops) WITH (lists = 100);
 
--- =====================================================
--- TRANSACTIONS Table
+-- Comments
+COMMENT ON TABLE users IS 'User profiles with demographics for personalized survey generation';
+COMMENT ON COLUMN users.embeddings IS 'User profile embeddings for personalization';
+
+
+-- Migration: Create TRANSACTIONS table
 -- Stores purchase and delivery information
--- =====================================================
+
 CREATE TABLE IF NOT EXISTS transactions (
     transaction_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     item_id UUID NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
@@ -110,15 +119,18 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 
 -- Indexes for transactions
-CREATE INDEX idx_transactions_item_id ON transactions(item_id);
-CREATE INDEX idx_transactions_user_id ON transactions(user_id);
-CREATE INDEX idx_transactions_order_date ON transactions(order_date);
-CREATE INDEX idx_transactions_status ON transactions(transaction_status);
+CREATE INDEX IF NOT EXISTS idx_transactions_item_id ON transactions(item_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_order_date ON transactions(order_date);
+CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(transaction_status);
 
--- =====================================================
--- REVIEWS Table
+-- Comments
+COMMENT ON TABLE transactions IS 'Purchase and delivery tracking';
+
+
+-- Migration: Create REVIEWS table
 -- Stores user reviews with embeddings for sentiment analysis
--- =====================================================
+
 CREATE TABLE IF NOT EXISTS reviews (
     review_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     item_id UUID NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
@@ -146,16 +158,21 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 
 -- Indexes for reviews
-CREATE INDEX idx_reviews_item_id ON reviews(item_id);
-CREATE INDEX idx_reviews_user_id ON reviews(user_id);
-CREATE INDEX idx_reviews_transaction_id ON reviews(transaction_id);
-CREATE INDEX idx_reviews_stars ON reviews(review_stars);
-CREATE INDEX idx_reviews_embeddings ON reviews USING ivfflat(embeddings vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS idx_reviews_item_id ON reviews(item_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON reviews(user_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_transaction_id ON reviews(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_stars ON reviews(review_stars);
+CREATE INDEX IF NOT EXISTS idx_reviews_embeddings ON reviews USING ivfflat(embeddings vector_cosine_ops) WITH (lists = 100);
 
--- =====================================================
--- SURVEY Table (Survey Questions & Responses)
+-- Comments
+COMMENT ON TABLE reviews IS 'User-generated reviews with AI-generated embeddings and sentiment';
+COMMENT ON COLUMN reviews.embeddings IS 'Review text embeddings for sentiment analysis';
+COMMENT ON COLUMN reviews.manual_or_agent_generated IS 'Indicates if review was written manually by user or generated by AI agent';
+
+
+-- Migration: Create SURVEY table
 -- Core table for the agentic GenAI survey system
--- =====================================================
+
 CREATE TABLE IF NOT EXISTS survey (
     scenario_id UUID DEFAULT uuid_generate_v4(),
     item_id UUID NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
@@ -185,16 +202,20 @@ CREATE TABLE IF NOT EXISTS survey (
 );
 
 -- Indexes for survey
-CREATE INDEX idx_survey_item_id ON survey(item_id);
-CREATE INDEX idx_survey_user_id ON survey(user_id);
-CREATE INDEX idx_survey_transaction_id ON survey(transaction_id);
-CREATE INDEX idx_survey_survey_id ON survey(survey_id);
-CREATE INDEX idx_survey_scenario_id ON survey(scenario_id);
+CREATE INDEX IF NOT EXISTS idx_survey_item_id ON survey(item_id);
+CREATE INDEX IF NOT EXISTS idx_survey_user_id ON survey(user_id);
+CREATE INDEX IF NOT EXISTS idx_survey_transaction_id ON survey(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_survey_survey_id ON survey(survey_id);
+CREATE INDEX IF NOT EXISTS idx_survey_scenario_id ON survey(scenario_id);
 
--- =====================================================
--- SURVEY_SESSIONS Table (NEW - for tracking survey flow)
+-- Comments
+COMMENT ON TABLE survey IS 'Core agentic survey system - dynamically generated questions';
+COMMENT ON COLUMN survey.correctly_anticipates_user_sentiment IS 'Ground truth for training/fine-tuning the agent';
+
+
+-- Migration: Create SURVEY_SESSIONS table
 -- Tracks entire survey sessions for analytics and agent improvement
--- =====================================================
+
 CREATE TABLE IF NOT EXISTS survey_sessions (
     session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -218,14 +239,16 @@ CREATE TABLE IF NOT EXISTS survey_sessions (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_survey_sessions_user_id ON survey_sessions(user_id);
-CREATE INDEX idx_survey_sessions_transaction_id ON survey_sessions(transaction_id);
-CREATE INDEX idx_survey_sessions_completed ON survey_sessions(is_completed);
+CREATE INDEX IF NOT EXISTS idx_survey_sessions_user_id ON survey_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_survey_sessions_transaction_id ON survey_sessions(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_survey_sessions_completed ON survey_sessions(is_completed);
 
--- =====================================================
--- TRIGGERS
+-- Comments
+COMMENT ON TABLE survey_sessions IS 'Tracks survey sessions for analytics and agent learning';
+
+
+-- Migration: Create Triggers
 -- Auto-update timestamps and derived fields
--- =====================================================
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -237,21 +260,27 @@ END;
 $$ language 'plpgsql';
 
 -- Apply trigger to all tables
+DROP TRIGGER IF EXISTS update_products_updated_at ON products;
 CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_transactions_updated_at ON transactions;
 CREATE TRIGGER update_transactions_updated_at BEFORE UPDATE ON transactions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_reviews_updated_at ON reviews;
 CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON reviews
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_survey_updated_at ON survey;
 CREATE TRIGGER update_survey_updated_at BEFORE UPDATE ON survey
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_survey_sessions_updated_at ON survey_sessions;
 CREATE TRIGGER update_survey_sessions_updated_at BEFORE UPDATE ON survey_sessions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -267,20 +296,22 @@ BEGIN
         UPDATE products
         SET review_count = review_count - 1
         WHERE item_id = OLD.item_id;
-    END IF;
+    END IF
+;
     RETURN NULL;
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS trigger_update_review_count ON reviews;
 CREATE TRIGGER trigger_update_review_count
 AFTER INSERT OR DELETE ON reviews
 FOR EACH ROW EXECUTE FUNCTION update_product_review_count();
 
--- =====================================================
--- ROW LEVEL SECURITY (RLS) Policies
--- Basic policies - adjust based on your auth strategy
--- =====================================================
 
+-- Migration: Enable Row Level Security (RLS)
+-- Basic policies - adjust based on your auth strategy
+
+-- Enable RLS on all tables
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
@@ -289,59 +320,76 @@ ALTER TABLE survey ENABLE ROW LEVEL SECURITY;
 ALTER TABLE survey_sessions ENABLE ROW LEVEL SECURITY;
 
 -- Allow anonymous read access to products (public catalog)
+DROP POLICY IF EXISTS "Allow public read access to products" ON products;
 CREATE POLICY "Allow public read access to products"
 ON products FOR SELECT
 TO anon
 USING (true);
 
 -- Users can only view their own data
+DROP POLICY IF EXISTS "Users can view their own profile" ON users;
 CREATE POLICY "Users can view their own profile"
 ON users FOR SELECT
 TO authenticated
 USING (auth.uid()::uuid = user_id);
 
 -- Users can only view their own transactions
+DROP POLICY IF EXISTS "Users can view their own transactions" ON transactions;
 CREATE POLICY "Users can view their own transactions"
 ON transactions FOR SELECT
 TO authenticated
 USING (user_id = auth.uid()::uuid);
 
 -- Users can view and create their own reviews
+DROP POLICY IF EXISTS "Users can view their own reviews" ON reviews;
 CREATE POLICY "Users can view their own reviews"
 ON reviews FOR SELECT
 TO authenticated
 USING (user_id = auth.uid()::uuid);
 
+DROP POLICY IF EXISTS "Users can create their own reviews" ON reviews;
 CREATE POLICY "Users can create their own reviews"
 ON reviews FOR INSERT
 TO authenticated
 WITH CHECK (user_id = auth.uid()::uuid);
 
 -- Users can view their own survey questions
+DROP POLICY IF EXISTS "Users can view their own survey questions" ON survey;
 CREATE POLICY "Users can view their own survey questions"
 ON survey FOR SELECT
 TO authenticated
 USING (user_id = auth.uid()::uuid);
 
 -- Users can view their own survey sessions
+DROP POLICY IF EXISTS "Users can view their own survey sessions" ON survey_sessions;
 CREATE POLICY "Users can view their own survey sessions"
 ON survey_sessions FOR SELECT
 TO authenticated
 USING (user_id = auth.uid()::uuid);
 
--- =====================================================
--- COMMENTS for documentation
--- =====================================================
 
-COMMENT ON TABLE products IS 'Stores product information from various e-commerce platforms';
-COMMENT ON TABLE users IS 'User profiles with demographics for personalized survey generation';
-COMMENT ON TABLE transactions IS 'Purchase and delivery tracking';
-COMMENT ON TABLE reviews IS 'User-generated reviews with AI-generated embeddings and sentiment';
-COMMENT ON TABLE survey IS 'Core agentic survey system - dynamically generated questions';
-COMMENT ON TABLE survey_sessions IS 'Tracks survey sessions for analytics and agent learning';
+-- Migration: Add conversation_history column to existing survey_sessions table
+-- This handles the case where the table exists but is missing this column
 
-COMMENT ON COLUMN products.embeddings IS 'Vector embeddings for semantic product search';
-COMMENT ON COLUMN users.embeddings IS 'User profile embeddings for personalization';
-COMMENT ON COLUMN reviews.embeddings IS 'Review text embeddings for sentiment analysis';
-COMMENT ON COLUMN reviews.manual_or_agent_generated IS 'Indicates if review was written manually by user or generated by AI agent';
-COMMENT ON COLUMN survey.correctly_anticipates_user_sentiment IS 'Ground truth for training/fine-tuning the agent';
+DO $$
+BEGIN
+    -- Check if conversation_history column exists
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+        AND table_name = 'survey_sessions'
+        AND column_name = 'conversation_history'
+    ) THEN
+        -- Add the column
+        ALTER TABLE survey_sessions
+        ADD COLUMN conversation_history JSONB DEFAULT '[]'::jsonb;
+
+        RAISE NOTICE 'Added conversation_history column to survey_sessions table';
+    ELSE
+        RAISE NOTICE 'conversation_history column already exists in survey_sessions table';
+    END IF;
+END $$;
+
+-- Add comment
+COMMENT ON COLUMN survey_sessions.conversation_history IS 'Stores conversation messages between agent and user during survey';

@@ -80,27 +80,93 @@ Tracks complete survey sessions for analytics.
 - Agent performance metrics
 - `session_context` (JSONB): Maintains conversation state
 
-## Setup Instructions
+## Quick Setup (One Command)
+
+### Option 1: Automated Migration Tool (Easiest)
+
+```bash
+# Run the Python migration tool
+cd backend
+conda activate survey-sensei
+python ../database/init/apply_migrations.py
+```
+
+This will:
+- Display all migration SQL
+- Save combined SQL to `database/migrations/_combined_migrations.sql`
+- Provide copy-paste instructions for Supabase SQL Editor
+
+### Option 2: Using psql (Terminal)
+
+```bash
+# Get your database password from: Supabase Dashboard → Settings → Database
+export PGPASSWORD='your-database-password'
+
+# Run all migrations
+cat database/migrations/*.sql | psql \
+    -h db.tursagcbtccbzdyjavex.supabase.co \
+    -p 5432 -U postgres -d postgres
+```
+
+Or use the provided script:
+```bash
+chmod +x database/init/run_migrations.sh
+PGPASSWORD='your-password' ./database/init/run_migrations.sh
+```
+
+### Option 3: Manual SQL Editor
+
+Copy and paste the contents of `database/migrations/_combined_migrations.sql` (auto-generated) or individual migration files into the Supabase SQL Editor:
+- Go to: https://tursagcbtccbzdyjavex.supabase.co/project/default/sql/new
+- Paste SQL and click "Run"
+
+## Setup Instructions (Detailed)
 
 ### Prerequisites
 
 1. **Supabase Account**: https://supabase.com
-2. **pgvector Extension**: Required for embeddings
+2. **pgvector Extension**: Required for embeddings (auto-installed via migrations)
+3. **Conda Environment**: Uses `survey-sensei` environment (no separate requirements.txt needed)
 
-### Step 1: Enable Extensions
+### Folder Structure
 
-In your Supabase SQL Editor, run:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "vector";
+```
+database/
+├── init/                    # Migration tools and scripts
+│   ├── apply_migrations.py  # Python migration tool (recommended)
+│   ├── run_migrations.py    # Alternative Python runner
+│   └── run_migrations.sh    # Bash script for psql
+├── migrations/              # SQL migration files (run in order)
+│   ├── 001_enable_extensions.sql
+│   ├── 002_create_products_table.sql
+│   ├── 003_create_users_table.sql
+│   ├── 004_create_transactions_table.sql
+│   ├── 005_create_reviews_table.sql
+│   ├── 006_create_survey_table.sql
+│   ├── 007_create_survey_sessions_table.sql
+│   ├── 008_create_triggers.sql
+│   ├── 009_enable_row_level_security.sql
+│   └── _combined_migrations.sql  # Auto-generated combined SQL
+├── seed/                    # Sample data for testing
+│   └── 001_sample_data.sql
+├── functions/               # Custom PostgreSQL functions
+│   └── match_products.sql
+└── README.md               # This file
 ```
 
-### Step 2: Run Migration
+### Migration Files
 
-Copy and paste the contents of `migrations/001_initial_schema.sql` into the Supabase SQL Editor and execute.
+Each migration is in a separate file for clarity and granular control:
 
-**Important**: Run the entire migration as a single transaction to ensure referential integrity.
+1. **001_enable_extensions.sql** - PostgreSQL extensions (uuid-ossp, vector)
+2. **002_create_products_table.sql** - Product catalog with embeddings
+3. **003_create_users_table.sql** - User profiles and demographics
+4. **004_create_transactions_table.sql** - Purchase tracking
+5. **005_create_reviews_table.sql** - User reviews with sentiment
+6. **006_create_survey_table.sql** - Survey questions and responses
+7. **007_create_survey_sessions_table.sql** - Survey session tracking
+8. **008_create_triggers.sql** - Auto-update triggers
+9. **009_enable_row_level_security.sql** - RLS policies
 
 ### Step 3: Verify Installation
 
@@ -267,9 +333,18 @@ ADD COLUMN new_field TEXT;
 
 ### Creating Migrations
 
-For future schema changes, create numbered migration files:
-- `002_add_feature_x.sql`
-- `003_modify_table_y.sql`
+For future schema changes, create numbered migration files in `database/migrations/`:
+
+```bash
+# Example: Adding a new column
+database/migrations/010_add_user_preferences.sql
+```
+
+Best practices:
+- Use sequential numbering (010, 011, 012...)
+- One logical change per file
+- Include descriptive names
+- Run migration tool after creating: `python database/init/apply_migrations.py`
 
 ## Performance Optimization
 
