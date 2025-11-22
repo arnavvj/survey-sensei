@@ -125,3 +125,34 @@ export interface SubmitResponse {
   scenarioId?: string
   error?: string
 }
+
+// Survey types
+export interface SurveyQuestion {
+  question_text: string
+  options: string[]
+  reasoning?: string
+  question_type?: 'single' | 'multiple'
+}
+
+export interface SurveyResponse {
+  question: string
+  answer: string | string[]
+  question_number: number
+}
+
+export interface SurveySession {
+  session_id: string
+  question?: SurveyQuestion
+  question_number: number
+  total_questions: number
+  status?: 'continue' | 'completed'
+  review_options?: ReviewOption[]
+  responses: SurveyResponse[]
+}
+
+export interface ReviewOption {
+  review_text: string
+  rating: number
+  sentiment: string
+  tone: string
+}

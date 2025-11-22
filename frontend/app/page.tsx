@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { FormData, FormStep, ProductData, MockDataSummary } from '@/lib/types'
+import { FormData, FormStep, ProductData, MockDataSummary, SurveySession, SurveyResponse } from '@/lib/types'
 import { ProductUrlField } from '@/components/form/ProductUrlField'
 import { ReviewStatusField } from '@/components/form/ReviewStatusField'
 import { SentimentSpreadField } from '@/components/form/SentimentSpreadField'
@@ -28,6 +28,12 @@ export default function HomePage() {
   const [isSummaryPaneMinimized, setIsSummaryPaneMinimized] = useState(false) // Summary minimized to 10%
   const [showSurveyUI, setShowSurveyUI] = useState(false) // Show Survey UI (Phase 1 Part 2)
   const [activePaneIn3PaneMode, setActivePaneIn3PaneMode] = useState<'form' | 'summary' | 'survey'>('survey') // Which pane is expanded in 3-pane mode
+
+  // Survey states
+  const [surveySession, setSurveySession] = useState<SurveySession | null>(null)
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([])
+  const [isLoadingSurvey, setIsLoadingSurvey] = useState(false)
+  const [surveyError, setSurveyError] = useState<string | null>(null)
 
   const updateFormData = (updates: Partial<FormData>) => {
     setFormData((prev) => ({ ...prev, ...updates }))
@@ -112,12 +118,126 @@ export default function HomePage() {
     }
   }
 
+  // Start survey session with backend
+  const startSurveySession = async () => {
+    if (!mockDataSummary) return
+
+    setIsLoadingSurvey(true)
+    setSurveyError(null)
+
+    try {
+      const response = await fetch('/api/survey/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          form_data: formData,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to start survey')
+      }
+
+      const data = await response.json()
+      setSurveySession({
+        session_id: data.session_id,
+        question: data.question,
+        question_number: data.question_number,
+        total_questions: data.total_questions,
+        responses: [],
+      })
+    } catch (error: any) {
+      console.error('Error starting survey:', error)
+      setSurveyError(error.message || 'Failed to start survey. Make sure the backend server is running.')
+    } finally {
+      setIsLoadingSurvey(false)
+    }
+  }
+
+  // Submit answer and get next question
+  const submitAnswer = async () => {
+    if (!surveySession || selectedOptions.length === 0) return
+
+    setIsLoadingSurvey(true)
+    setSurveyError(null)
+
+    try {
+      const answer = surveySession.question?.question_type === 'multiple'
+        ? selectedOptions
+        : selectedOptions[0]
+
+      const response = await fetch('/api/survey/answer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: surveySession.session_id,
+          answer,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to submit answer')
+      }
+
+      const data = await response.json()
+
+      // Add response to history
+      const newResponse: SurveyResponse = {
+        question: surveySession.question!.question_text,
+        answer,
+        question_number: surveySession.question_number,
+      }
+
+      setSurveySession({
+        ...surveySession,
+        question: data.question,
+        question_number: data.question_number,
+        total_questions: data.total_questions,
+        status: data.status,
+        review_options: data.review_options,
+        responses: [...surveySession.responses, newResponse],
+      })
+
+      // Clear selected options for next question
+      setSelectedOptions([])
+    } catch (error: any) {
+      console.error('Error submitting answer:', error)
+      setSurveyError(error.message || 'Failed to submit answer')
+    } finally {
+      setIsLoadingSurvey(false)
+    }
+  }
+
+  // Toggle option selection
+  const toggleOption = (option: string) => {
+    if (!surveySession?.question) return
+
+    if (surveySession.question.question_type === 'multiple') {
+      // Multiple selection
+      setSelectedOptions(prev =>
+        prev.includes(option)
+          ? prev.filter(o => o !== option)
+          : [...prev, option]
+      )
+    } else {
+      // Single selection
+      setSelectedOptions([option])
+    }
+  }
+
   // Navigate to Survey UI (enter 3-pane mode)
-  const handleNext = () => {
+  const handleNext = async () => {
     setShowSurveyUI(true)
     setActivePaneIn3PaneMode('survey') // Start with survey pane expanded
     // Scroll survey pane to top when transitioning
     setTimeout(() => surveyPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+
+    // Start survey session
+    await startSurveySession()
   }
 
   const handleProductFetched = (productData: ProductData) => {
@@ -587,38 +707,102 @@ export default function HomePage() {
                   Personalized Survey
                 </h2>
 
-              {/* Placeholder for AI-generated survey questions */}
-              <div className="space-y-6">
-                <div className="p-6 bg-blue-50 border-l-4 border-blue-500 rounded-lg">
-                  <p className="text-sm text-blue-700 mb-4">
-                    <strong>Phase 2 Integration Point:</strong> AI-generated survey questions will appear here.
-                  </p>
-                  <p className="text-xs text-blue-600">
-                    Backend agentic framework will generate personalized questions based on:
-                    product data, user persona, purchase history, and sentiment analysis.
-                  </p>
-                </div>
-
-                {/* Sample Question (for UI demonstration) */}
-                <div className="p-6 bg-white border-2 border-gray-200 rounded-lg shadow-sm">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4">
-                    Sample Question (Demo)
-                  </h3>
-                  <p className="text-gray-700 mb-4">
-                    What influenced your decision to purchase this product?
-                  </p>
-                  <div className="space-y-2">
-                    {['Product reviews', 'Price', 'Brand reputation', 'Features', 'Recommendation'].map((option, idx) => (
-                      <button
-                        key={idx}
-                        className="w-full text-left p-3 border-2 border-gray-200 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-all"
-                      >
-                        {option}
-                      </button>
-                    ))}
+              {/* Loading State */}
+              {isLoadingSurvey && !surveySession && (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <svg className="animate-spin h-12 w-12 text-primary-600 mx-auto mb-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <p className="text-gray-600">Starting survey session...</p>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Error State */}
+              {surveyError && (
+                <div className="p-6 bg-red-50 border-l-4 border-red-500 rounded-lg mb-6">
+                  <p className="text-sm text-red-700 mb-2">
+                    <strong>Error:</strong> {surveyError}
+                  </p>
+                  <button
+                    onClick={startSurveySession}
+                    className="text-sm text-red-600 underline hover:text-red-800"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {/* Survey Question */}
+              {surveySession && surveySession.status !== 'completed' && surveySession.question && (
+                <div className="space-y-6">
+                  <div className="p-6 bg-[#BDF5BD] border-2 border-gray-200 rounded-lg shadow-sm">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-xl font-semibold text-gray-900">
+                        Question {surveySession.question_number} of {surveySession.total_questions}
+                      </h3>
+                      {surveySession.question.question_type === 'multiple' && (
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Multiple Choice</span>
+                      )}
+                    </div>
+                    <p className="text-gray-900 mb-4 text-lg">
+                      {surveySession.question.question_text}
+                    </p>
+                    <div className="space-y-2">
+                      {surveySession.question.options.map((option, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => toggleOption(option)}
+                          className={`w-full text-left p-3 border-2 rounded-lg transition-all text-gray-900 font-medium ${
+                            selectedOptions.includes(option)
+                              ? 'border-primary-600 bg-primary-100'
+                              : 'border-gray-300 hover:border-primary-500 hover:bg-green-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {surveySession.question?.question_type === 'multiple' && (
+                              <div className={`w-5 h-5 border-2 rounded ${selectedOptions.includes(option) ? 'bg-primary-600 border-primary-600' : 'border-gray-300'}`}>
+                                {selectedOptions.includes(option) && (
+                                  <svg className="w-full h-full text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </div>
+                            )}
+                            <span>{option}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={submitAnswer}
+                      disabled={selectedOptions.length === 0 || isLoadingSurvey}
+                      className="mt-4 w-full btn-primary py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoadingSurvey ? 'Submitting...' : 'Submit Answer'}
+                    </button>
+                    {surveySession.question.reasoning && (
+                      <div className="mt-4 p-3 bg-blue-50 rounded text-sm text-gray-700">
+                        <strong>Why we're asking:</strong> {surveySession.question.reasoning}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Survey Completed */}
+              {surveySession && surveySession.status === 'completed' && (
+                <div className="p-6 bg-green-50 border-l-4 border-green-500 rounded-lg">
+                  <p className="text-lg text-green-700 font-semibold mb-2">
+                    Survey Completed!
+                  </p>
+                  <p className="text-sm text-green-600">
+                    Thank you for completing the survey. Review options are available below.
+                  </p>
+                </div>
+              )}
             </div>
             </div>
 
@@ -626,29 +810,39 @@ export default function HomePage() {
             <div className="h-[35%] bg-emerald-600 p-6 overflow-y-auto">
             <div className="max-w-3xl mx-auto">
               <h3 className="text-lg font-semibold text-white mb-4">
-                Your Responses
+                Your Responses ({surveySession?.responses.length || 0})
               </h3>
 
-              {/* Placeholder for stacked Q&A */}
+              {/* Response Stack */}
               <div className="space-y-3">
-                <div className="p-4 bg-white rounded-lg shadow-sm border-l-4 border-emerald-700">
-                  <p className="text-sm text-gray-600 mb-1">Sample Question</p>
-                  <p className="text-gray-900 font-medium">Selected Answer</p>
-                </div>
-
-                <div className="p-4 bg-emerald-500 border-2 border-dashed border-emerald-300 rounded-lg">
-                  <p className="text-sm text-emerald-50 italic">
-                    Your answered questions will stack here as you progress through the survey...
-                  </p>
-                </div>
+                {surveySession && surveySession.responses.length > 0 ? (
+                  surveySession.responses.map((response, idx) => (
+                    <div key={idx} className="p-4 bg-white rounded-lg shadow-sm border-l-4 border-emerald-700">
+                      <p className="text-sm text-gray-600 mb-1">
+                        Q{response.question_number}: {response.question}
+                      </p>
+                      <p className="text-gray-900 font-medium">
+                        {Array.isArray(response.answer) ? response.answer.join(', ') : response.answer}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-4 bg-emerald-500 border-2 border-dashed border-emerald-300 rounded-lg">
+                    <p className="text-sm text-emerald-50 italic">
+                      Your answered questions will stack here as you progress through the survey...
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Generate Review Button (appears after completing questions) */}
-              <div className="mt-6">
-                <button className="w-full btn-primary py-4 text-lg">
-                  Generate Product Review
-                </button>
-              </div>
+              {surveySession && surveySession.status === 'completed' && (
+                <div className="mt-6">
+                  <button className="w-full btn-primary py-4 text-lg">
+                    Generate Product Review
+                  </button>
+                </div>
+              )}
             </div>
             </div>
             </div>
