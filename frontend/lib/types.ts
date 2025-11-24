@@ -72,6 +72,9 @@ export interface MockDataSummary {
     product: boolean
     user: boolean
   }
+  // IDs for survey session
+  mainProductId?: string
+  mainUserId?: string
 }
 
 // Validation schemas
@@ -130,8 +133,8 @@ export interface SubmitResponse {
 export interface SurveyQuestion {
   question_text: string
   options: string[]
+  allow_multiple: boolean
   reasoning?: string
-  question_type?: 'single' | 'multiple'
 }
 
 export interface SurveyResponse {
@@ -145,7 +148,7 @@ export interface SurveySession {
   question?: SurveyQuestion
   question_number: number
   total_questions: number
-  status?: 'continue' | 'completed'
+  status?: 'continue' | 'completed' | 'review_submitted'
   review_options?: ReviewOption[]
   responses: SurveyResponse[]
 }
