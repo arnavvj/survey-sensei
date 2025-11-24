@@ -132,6 +132,8 @@ export default function HomePage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          user_id: mockDataSummary.mainUserId || 'unknown',
+          item_id: mockDataSummary.mainProductId || 'unknown',
           form_data: formData,
         }),
       })
@@ -164,7 +166,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      const answer = surveySession.question?.question_type === 'multiple'
+      const answer = surveySession.question?.allow_multiple
         ? selectedOptions
         : selectedOptions[0]
 
@@ -216,7 +218,7 @@ export default function HomePage() {
   const toggleOption = (option: string) => {
     if (!surveySession?.question) return
 
-    if (surveySession.question.question_type === 'multiple') {
+    if (surveySession.question.allow_multiple) {
       // Multiple selection
       setSelectedOptions(prev =>
         prev.includes(option)
@@ -226,6 +228,100 @@ export default function HomePage() {
     } else {
       // Single selection
       setSelectedOptions([option])
+    }
+  }
+
+  // Submit selected review
+  const submitReview = async (reviewIndex: number) => {
+    if (!surveySession?.session_id) return
+
+    setIsLoadingSurvey(true)
+    setSurveyError(null)
+
+    try {
+      const response = await fetch('/api/survey/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: surveySession.session_id,
+          selected_review_index: reviewIndex,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to submit review')
+      }
+
+      const data = await response.json()
+
+      // Update session to show review has been submitted
+      setSurveySession({
+        ...surveySession,
+        status: 'review_submitted' as any,
+      })
+
+      console.log('Review submitted successfully:', data)
+    } catch (error: any) {
+      console.error('Error submitting review:', error)
+      setSurveyError(error.message || 'Failed to submit review')
+    } finally {
+      setIsLoadingSurvey(false)
+    }
+  }
+
+  // Edit a previous answer (branching)
+  const editPreviousAnswer = async (questionNumber: number, newAnswer: string) => {
+    if (!surveySession?.session_id) return
+
+    setIsLoadingSurvey(true)
+    setSurveyError(null)
+
+    try {
+      const response = await fetch('/api/survey/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: surveySession.session_id,
+          question_number: questionNumber,
+          answer: newAnswer,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to edit answer')
+      }
+
+      const data = await response.json()
+
+      // Remove responses after the edited question
+      const updatedResponses = surveySession.responses.slice(0, questionNumber - 1)
+
+      // Add the new answer
+      const newResponse: SurveyResponse = {
+        question: surveySession.responses[questionNumber - 1].question,
+        answer: newAnswer,
+        question_number: questionNumber,
+      }
+      updatedResponses.push(newResponse)
+
+      // Update session with new question
+      setSurveySession({
+        ...surveySession,
+        question: data.question,
+        question_number: data.question_number,
+        total_questions: data.total_questions,
+        status: data.status,
+        review_options: data.review_options,
+        responses: updatedResponses,
+      })
+
+      // Clear selected options for next question
+      setSelectedOptions([])
+    } catch (error: any) {
+      console.error('Error editing answer:', error)
+      setSurveyError(error.message || 'Failed to edit answer')
+    } finally {
+      setIsLoadingSurvey(false)
     }
   }
 
@@ -743,9 +839,22 @@ export default function HomePage() {
                       <h3 className="text-xl font-semibold text-gray-900">
                         Question {surveySession.question_number} of {surveySession.total_questions}
                       </h3>
-                      {surveySession.question.question_type === 'multiple' && (
-                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Multiple Choice</span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {surveySession.question.allow_multiple && (
+                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Multiple Selection</span>
+                        )}
+                        <button
+                          onClick={startSurveySession}
+                          disabled={isLoadingSurvey}
+                          className="text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-3 py-1.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50"
+                          title="Restart survey with current form data"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Restart Survey
+                        </button>
+                      </div>
                     </div>
                     <p className="text-gray-900 mb-4 text-lg">
                       {surveySession.question.question_text}
@@ -762,12 +871,21 @@ export default function HomePage() {
                           }`}
                         >
                           <div className="flex items-center gap-2">
-                            {surveySession.question?.question_type === 'multiple' && (
+                            {surveySession.question?.allow_multiple && (
                               <div className={`w-5 h-5 border-2 rounded ${selectedOptions.includes(option) ? 'bg-primary-600 border-primary-600' : 'border-gray-300'}`}>
                                 {selectedOptions.includes(option) && (
                                   <svg className="w-full h-full text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                   </svg>
+                                )}
+                              </div>
+                            )}
+                            {!surveySession.question?.allow_multiple && (
+                              <div className={`w-5 h-5 border-2 rounded-full ${selectedOptions.includes(option) ? 'bg-primary-600 border-primary-600' : 'border-gray-300'}`}>
+                                {selectedOptions.includes(option) && (
+                                  <div className="w-full h-full flex items-center justify-center">
+                                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -795,12 +913,27 @@ export default function HomePage() {
               {/* Survey Completed */}
               {surveySession && surveySession.status === 'completed' && (
                 <div className="p-6 bg-green-50 border-l-4 border-green-500 rounded-lg">
-                  <p className="text-lg text-green-700 font-semibold mb-2">
-                    Survey Completed!
-                  </p>
-                  <p className="text-sm text-green-600">
-                    Thank you for completing the survey. Review options are available below.
-                  </p>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-lg text-green-700 font-semibold mb-2">
+                        Survey Completed!
+                      </p>
+                      <p className="text-sm text-green-600">
+                        Thank you for completing the survey. Review options are available below.
+                      </p>
+                    </div>
+                    <button
+                      onClick={startSurveySession}
+                      disabled={isLoadingSurvey}
+                      className="text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-3 py-1.5 rounded flex items-center gap-1 transition-colors disabled:opacity-50 whitespace-nowrap"
+                      title="Restart survey with current form data"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Restart Survey
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -817,12 +950,30 @@ export default function HomePage() {
               <div className="space-y-3">
                 {surveySession && surveySession.responses.length > 0 ? (
                   surveySession.responses.map((response, idx) => (
-                    <div key={idx} className="p-4 bg-white rounded-lg shadow-sm border-l-4 border-emerald-700">
+                    <div
+                      key={idx}
+                      className="p-4 bg-white rounded-lg shadow-sm border-l-4 border-emerald-700 hover:border-primary-500 cursor-pointer transition-all group"
+                      onClick={() => {
+                        if (confirm(`Edit your answer to question ${response.question_number}?\n\nThis will discard all answers after this question and let you continue from here.`)) {
+                          const newAnswer = prompt(
+                            `${response.question}\n\nCurrent answer: ${Array.isArray(response.answer) ? response.answer.join(', ') : response.answer}\n\nEnter new answer:`,
+                            Array.isArray(response.answer) ? response.answer.join(', ') : response.answer
+                          )
+                          if (newAnswer) {
+                            editPreviousAnswer(response.question_number, newAnswer)
+                          }
+                        }
+                      }}
+                      title="Click to edit this answer"
+                    >
                       <p className="text-sm text-gray-600 mb-1">
                         Q{response.question_number}: {response.question}
                       </p>
                       <p className="text-gray-900 font-medium">
                         {Array.isArray(response.answer) ? response.answer.join(', ') : response.answer}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        💡 Click to edit and branch from here
                       </p>
                     </div>
                   ))
@@ -835,12 +986,72 @@ export default function HomePage() {
                 )}
               </div>
 
-              {/* Generate Review Button (appears after completing questions) */}
-              {surveySession && surveySession.status === 'completed' && (
-                <div className="mt-6">
-                  <button className="w-full btn-primary py-4 text-lg">
-                    Generate Product Review
-                  </button>
+              {/* Review Options (appears after completing questions) */}
+              {surveySession && surveySession.status === 'completed' && surveySession.review_options && (
+                <div className="mt-6 space-y-4">
+                  <h3 className="text-xl font-bold text-gray-900">
+                    Select Your Review
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    Based on your responses, here are 3 review options. Select the one that best matches your experience:
+                  </p>
+                  <div className="space-y-3">
+                    {surveySession.review_options.map((review, idx) => (
+                      <div
+                        key={idx}
+                        className="border-2 border-gray-300 rounded-lg p-4 hover:border-primary-500 transition-all cursor-pointer bg-white"
+                        onClick={() => submitReview(idx)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-900">Option {idx + 1}</span>
+                            <div className="flex items-center">
+                              {[...Array(5)].map((_, i) => (
+                                <svg
+                                  key={i}
+                                  className={`w-4 h-4 ${i < review.rating ? 'text-yellow-400' : 'text-gray-300'}`}
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                >
+                                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                              ))}
+                            </div>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            review.sentiment === 'positive' ? 'bg-green-100 text-green-800' :
+                            review.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {review.sentiment}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 text-sm leading-relaxed">
+                          {review.review_text}
+                        </p>
+                        <div className="mt-2 text-xs text-gray-500">
+                          Tone: {review.tone}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Review Submitted Confirmation */}
+              {surveySession && surveySession.status === 'review_submitted' && (
+                <div className="mt-6 p-6 bg-green-50 border-2 border-green-500 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <h3 className="text-xl font-bold text-green-900">Review Submitted!</h3>
+                      <p className="text-sm text-green-700 mt-1">
+                        Thank you for completing the survey and submitting your review.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

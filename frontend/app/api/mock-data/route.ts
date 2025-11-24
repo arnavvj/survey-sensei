@@ -181,6 +181,8 @@ async function generateAndInsertMockData(formData: FormData): Promise<MockDataSu
       product: formData.hasReviews === 'no' && formData.hasSimilarProductsReviewed === 'no',
       user: formData.userHasPurchasedSimilar === 'no',
     },
+    mainProductId: undefined,
+    mainUserId: undefined,
   }
 
   const allProducts: any[] = []
@@ -211,6 +213,7 @@ async function generateAndInsertMockData(formData: FormData): Promise<MockDataSu
     embeddings: JSON.stringify(mainProductEmbedding),
   }
   allProducts.push(mainProduct)
+  summary.mainProductId = mainProduct.item_id
 
   // Field 2 & 3: Product has reviews
   if (formData.hasReviews === 'yes' && formData.sentimentSpread) {
@@ -222,6 +225,11 @@ async function generateAndInsertMockData(formData: FormData): Promise<MockDataSu
     for (let i = 0; i < totalReviews; i++) {
       const user = await generateMockUser()
       allUsers.push(user)
+
+      // Set first user as main user if not set yet
+      if (!summary.mainUserId && i === 0) {
+        summary.mainUserId = user.user_id
+      }
 
       const transaction = generateMockTransaction(user.user_id, mainProduct.item_id, Math.floor(Math.random() * 90) + 1)
       allTransactions.push(transaction)
@@ -313,6 +321,7 @@ async function generateAndInsertMockData(formData: FormData): Promise<MockDataSu
     if (!allUsers.find(u => u.user_id === mainUser.user_id)) {
       allUsers.push(mainUser)
     }
+    summary.mainUserId = mainUser.user_id
 
     for (let i = 0; i < 2; i++) {
       const product = userProducts[Math.floor(Math.random() * Math.min(5, userProducts.length))]
