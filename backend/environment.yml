@@ -1,0 +1,78 @@
+# ============================================================================
+# Survey Sensei Backend - Conda Environment Configuration
+# ============================================================================
+#
+# Create environment:
+#   conda env create -f environment.yml
+#
+# Activate environment:
+#   conda activate survey-sensei
+#
+# Update environment:
+#   conda env update -f environment.yml --prune
+#
+# Export environment:
+#   conda env export > environment.yml
+#
+# Remove environment:
+#   conda env remove -n survey-sensei
+# ============================================================================
+
+name: survey-sensei
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python version
+  - python=3.11
+
+  # FastAPI and server
+  - fastapi=0.109.0
+  - uvicorn=0.27.0
+  - python-multipart=0.0.6
+
+  # Database
+  - psycopg2=2.9.9
+  - numpy=1.26.3
+
+  # Utilities
+  - python-dotenv=1.0.0
+  - requests=2.31.0
+  - tenacity=8.2.3
+
+  # Testing (optional but included)
+  - pytest=7.4.3
+  - pytest-asyncio=0.21.1
+  - pytest-cov=4.1.0
+  - pytest-mock=3.12.0
+  - faker=20.1.0
+
+  # Pip dependencies (not available in conda or need specific versions)
+  - pip
+  - pip:
+      # Pydantic (compatible versions)
+      - pydantic==2.12.4
+      - pydantic-core==2.41.5
+      - pydantic-settings==2.1.0
+
+      # LangChain and LangGraph (pip-only)
+      - langchain==0.1.5
+      - langchain-openai==0.0.5
+      - langchain-community==0.0.17
+      - langgraph==0.0.20
+      - langsmith==0.0.83
+
+      # OpenAI (pip-only)
+      - openai==1.10.0
+
+      # Database (pip-only)
+      - httpx==0.26.0
+      - gotrue==2.8.1
+      - supabase==2.7.4
+      - pgvector==0.2.4
+      - websockets>=15.0.0
+
+      # Embeddings (pip-only)
+      - sentence-transformers==2.3.1

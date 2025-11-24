@@ -365,10 +365,11 @@ npm run type-check   # TypeScript validation
 
 # Backend (Phase 2)
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload  # Start FastAPI server
+
+# Using Conda (Required)
+conda env create -f environment.yml
+conda activate survey-sensei
+python main.py  # Start FastAPI server
 ```
 
 ## Testing
