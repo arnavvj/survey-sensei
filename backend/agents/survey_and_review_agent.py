@@ -1,17 +1,6 @@
 """
-Agent 3: SURVEY_AGENT (Refactored)
-Stateful LangGraph agent for survey generation only
-
-Workflow:
-1. Invoke Agent 1 and Agent 2 in parallel to get contexts
-2. Generate initial survey questions (3 questions) based on contexts
-3. Present questions one by one, collect answers
-4. Generate follow-up questions based on previous answers (adaptive)
-5. Handle question navigation (back/forward with state updates)
-6. After survey completion, return control to main API (which invokes Agent 4)
-
-Review generation is now handled by Agent 4 (REVIEW_GEN_AGENT).
-This agent focuses solely on survey orchestration.
+Agent 3: Survey generation with adaptive questioning.
+Reviews handled by Agent 4.
 """
 
 from langgraph.graph import StateGraph, END
@@ -30,70 +19,36 @@ import json
 from datetime import datetime
 
 
-# ============================================================================
-# STATE DEFINITIONS
-# ============================================================================
-
-
 class SurveyQuestion(BaseModel):
-    """Single survey question with options"""
-
     question_text: str = Field(description="The question to ask the user")
     options: List[str] = Field(description="4-6 multiple choice options")
-    allow_multiple: bool = Field(
-        description="True if multiple options can be selected (non-mutually exclusive), False for single choice"
-    )
-    reasoning: str = Field(
-        description="Why this question is relevant based on context"
-    )
+    allow_multiple: bool = Field(description="True if multiple options can be selected")
+    reasoning: str = Field(description="Why this question is relevant")
 
 
 class SurveyQuestionnaire(BaseModel):
-    """Collection of survey questions"""
-
-    questions: List[SurveyQuestion] = Field(
-        description="List of 3-5 survey questions"
-    )
-    survey_goal: str = Field(
-        description="Overall goal of this survey batch"
-    )
-
-
-# Review generation models removed - now handled by Agent 4 (review_gen_agent)
+    questions: List[SurveyQuestion] = Field(description="List of 3-5 survey questions")
+    survey_goal: str = Field(description="Overall goal of this survey batch")
 
 
 class SurveyState(TypedDict):
-    """State for the survey conversation graph"""
-
-    # Session info
     session_id: str
     user_id: str
     item_id: str
-
-    # Contexts from Agent 1 and 2
     product_context: Optional[Dict[str, Any]]
     customer_context: Optional[Dict[str, Any]]
-
-    # Survey state
-    all_questions: List[Dict[str, Any]]  # All generated questions
+    all_questions: List[Dict[str, Any]]
     current_question_index: int
-    answers: List[Dict[str, Any]]  # User's answers
+    answers: List[Dict[str, Any]]
     total_questions_asked: int
-
-    # Conversation history for LLM
+    skipped_questions: List[int]
+    consecutive_skips: int
+    asked_question_texts: List[str]
     conversation_history: Annotated[Sequence[Dict[str, str]], operator.add]
-
-    # Control flow
-    next_action: str  # 'ask_question', 'generate_followup', 'complete_survey'
-
-
-# ============================================================================
-# AGENT DEFINITION
-# ============================================================================
+    next_action: str
 
 
 class SurveyAgent:
-    """Agent 3: Stateful survey generation (refactored - review generation moved to Agent 4)"""
 
     def __init__(self):
         self.llm = ChatOpenAI(
@@ -104,55 +59,31 @@ class SurveyAgent:
         self.graph = self._build_graph()
 
     def _build_graph(self) -> StateGraph:
-        """Build the LangGraph workflow"""
         workflow = StateGraph(SurveyState)
-
-        # Add nodes
         workflow.add_node("fetch_contexts", self._fetch_contexts)
         workflow.add_node("generate_initial_questions", self._generate_initial_questions)
         workflow.add_node("present_question", self._present_question)
-
-        # Define edges
         workflow.set_entry_point("fetch_contexts")
         workflow.add_edge("fetch_contexts", "generate_initial_questions")
         workflow.add_edge("generate_initial_questions", "present_question")
-
-        # Conditional routing after question presentation
         workflow.add_conditional_edges(
             "present_question",
             self._route_after_question,
-            {
-                "wait_for_answer": END,  # Return to user, wait for answer
-                "complete_survey": END,   # Survey completed, return to API
-            },
+            {"wait_for_answer": END, "complete_survey": END},
         )
-
         return workflow.compile()
 
-    # ========================================================================
-    # NODE FUNCTIONS
-    # ========================================================================
-
     def _fetch_contexts(self, state: SurveyState) -> Dict[str, Any]:
-        """
-        Node 1: Invoke Agent 1 and Agent 2 in parallel
-        Fetch product and customer contexts
-        """
-        # Get form data from session metadata (stored in session_context)
         session = db.get_survey_session(state["session_id"])
         session_context = session.get("session_context", {})
         form_data = session_context.get("form_data", {}) if isinstance(session_context, dict) else {}
 
-        # Invoke Agent 1: Product Context
-        # Use item_id from state instead of product_url from form_data
         product_context = product_context_agent.generate_context(
             item_id=state["item_id"],
             has_reviews=form_data.get("hasReviews") == "yes",
             form_data=form_data,
         )
 
-        # Invoke Agent 2: Customer Context
-        # Use item_id from state instead of product_url from form_data
         customer_context = customer_context_agent.generate_context(
             user_email=form_data.get("userPersona", {}).get("email", ""),
             item_id=state["item_id"],
@@ -173,9 +104,6 @@ class SurveyAgent:
         }
 
     def _generate_initial_questions(self, state: SurveyState) -> Dict[str, Any]:
-        """
-        Node 2: Generate initial 3 questions based on contexts
-        """
         parser = PydanticOutputParser(pydantic_object=SurveyQuestionnaire)
 
         prompt = ChatPromptTemplate.from_messages(
@@ -195,7 +123,15 @@ Guidelines:
 - Questions should flow naturally
 - Avoid generic questions
 - Set allow_multiple=true for questions where multiple options can logically be selected together (e.g., "What features do you use?", "What concerns do you have?")
-- Set allow_multiple=false for mutually exclusive questions (e.g., "How satisfied are you?", "Would you recommend?")""",
+- Set allow_multiple=false for mutually exclusive questions (e.g., "How satisfied are you?", "Would you recommend?")
+
+CRITICAL GUARDRAILS:
+- NEVER repeat questions - each question must be unique in wording and intent
+- NEVER repeat options across questions - ensure option diversity
+- Options within a question must be mutually distinct (no similar/overlapping options)
+- If a question allows multiple choices and conceptually could have "All of the above", include it as the last option
+- If appropriate, include "Other" as the last option to allow user input for unlisted choices
+- Track previously asked questions to ensure no repetition throughout the survey""",
                 ),
                 (
                     "human",
@@ -255,6 +191,11 @@ Generate {num_questions} initial survey questions. Each question should have 4-6
 
         current_q = state["all_questions"][state["current_question_index"]]
 
+        # Track asked question to prevent repetition
+        asked_texts = list(state.get("asked_question_texts", []))
+        if current_q["question_text"] not in asked_texts:
+            asked_texts.append(current_q["question_text"])
+
         # Save question to database
         db.save_survey_question(
             session_id=state["session_id"],
@@ -266,23 +207,35 @@ Generate {num_questions} initial survey questions. Each question should have 4-6
 
         return {
             "total_questions_asked": state["total_questions_asked"] + 1,
+            "asked_question_texts": asked_texts,
             "next_action": "wait_for_answer",
         }
 
-    def _process_answer(self, state: SurveyState, answer) -> Dict[str, Any]:
-        """
-        Node 4: Process user's answer
-        Update state and determine next action
-
-        Args:
-            answer: Can be a string (single choice) or list of strings (multi-select)
-        """
+    def _process_answer(self, state: SurveyState, answer, is_skipped: bool = False) -> Dict[str, Any]:
+        """Process user's answer or skip, update state"""
         current_q = state["all_questions"][state["current_question_index"]]
 
-        # Convert answer to string for storage in conversation history
+        if is_skipped:
+            skipped_list = list(state.get("skipped_questions", []))
+            skipped_list.append(state["current_question_index"])
+            consecutive_skips = state.get("consecutive_skips", 0) + 1
+
+            conversation_update = list(state.get("conversation_history", [])) + [
+                {"role": "assistant", "content": current_q["question_text"]},
+                {"role": "user", "content": "[SKIPPED - User found this question irrelevant to their feedback]"},
+            ]
+
+            next_index = state["current_question_index"] + 1
+
+            return {
+                "current_question_index": next_index,
+                "skipped_questions": skipped_list,
+                "consecutive_skips": consecutive_skips,
+                "conversation_history": conversation_update,
+            }
+
         answer_text = ", ".join(answer) if isinstance(answer, list) else answer
 
-        # Record answer
         answer_record = {
             "question_index": state["current_question_index"],
             "question": current_q["question_text"],
@@ -292,33 +245,28 @@ Generate {num_questions} initial survey questions. Each question should have 4-6
 
         updated_answers = list(state["answers"]) + [answer_record]
 
-        # Add to conversation history (use text version)
         conversation_update = list(state.get("conversation_history", [])) + [
             {"role": "assistant", "content": current_q["question_text"]},
             {"role": "user", "content": answer_text},
         ]
 
-        # Move to next question
+        consecutive_skips = 0
         next_index = state["current_question_index"] + 1
 
         return {
             "answers": updated_answers,
             "current_question_index": next_index,
+            "consecutive_skips": consecutive_skips,
             "conversation_history": conversation_update,
         }
 
     def _generate_followup_questions(self, state: SurveyState) -> Dict[str, Any]:
-        """
-        Node 5: Generate follow-up questions based on answers so far
-        Adaptive questioning based on conversation history
-        """
-        # Check if we've reached max questions
+        """Generate adaptive follow-up questions"""
         if state["total_questions_asked"] >= settings.max_survey_questions:
             return {"next_action": "complete_survey"}
 
         parser = PydanticOutputParser(pydantic_object=SurveyQuestionnaire)
 
-        # Prepare conversation summary
         answers_summary = "\n".join(
             [
                 f"Q{i+1}: {ans['question']}\nA: {ans['answer']}"
@@ -340,7 +288,16 @@ Guidelines:
 - Ensure questions flow naturally from the conversation
 - Help gather insights for an authentic review
 - Set allow_multiple=true for questions where multiple options can logically be selected together
-- Set allow_multiple=false for mutually exclusive questions""",
+- Set allow_multiple=false for mutually exclusive questions
+
+CRITICAL GUARDRAILS:
+- NEVER repeat questions - check asked_questions list and ensure each question is unique
+- NEVER repeat options across questions - ensure option diversity
+- Options within a question must be mutually distinct (no similar/overlapping options)
+- If user has been skipping questions, generate more relevant and specific questions
+- Pay attention to skipped questions - they indicate topics the user finds irrelevant
+- If a question allows multiple choices and conceptually could have "All of the above", include it as the last option
+- If appropriate, include "Other" as the last option to allow user input""",
                 ),
                 (
                     "human",
@@ -353,7 +310,14 @@ Customer Context:
 Previous Q&A:
 {previous_qa}
 
+Already Asked Questions (DO NOT REPEAT):
+{asked_questions}
+
+Skipped Questions Count: {skipped_count}
+Consecutive Skips: {consecutive_skips}
+
 Generate {num_questions} follow-up questions that build on the conversation.
+Pay special attention to avoid repetition and make questions more relevant if user has been skipping.
 
 {format_instructions}""",
                 ),
@@ -362,24 +326,28 @@ Generate {num_questions} follow-up questions that build on the conversation.
 
         chain = prompt | self.llm | parser
 
-        # Generate 2 follow-up questions
         num_followup = min(2, settings.max_survey_questions - state["total_questions_asked"])
+
+        asked_questions_list = "\n".join(
+            [f"- {q_text}" for q_text in state.get("asked_question_texts", [])]
+        ) or "None yet"
 
         questionnaire = chain.invoke(
             {
                 "product_context": json.dumps(state["product_context"], indent=2),
                 "customer_context": json.dumps(state["customer_context"], indent=2),
                 "previous_qa": answers_summary,
+                "asked_questions": asked_questions_list,
+                "skipped_count": len(state.get("skipped_questions", [])),
+                "consecutive_skips": state.get("consecutive_skips", 0),
                 "num_questions": num_followup,
                 "format_instructions": parser.get_format_instructions(),
             }
         )
 
-        # Add new questions to the list and validate
         new_questions = []
         for q in questionnaire.questions:
             q_dict = q.dict()
-            # Ensure question has at least 2 options
             if not q_dict.get("options") or len(q_dict["options"]) < 2:
                 print(f"WARNING: Followup question has insufficient options, skipping: {q_dict.get('question_text')}")
                 continue
@@ -392,59 +360,37 @@ Generate {num_questions} follow-up questions that build on the conversation.
             "next_action": "ask_question",
         }
 
-    # Review generation methods removed - now handled by Agent 4 (review_gen_agent)
-    # See: backend/agents/review_gen_agent.py
-
-    # ========================================================================
-    # ROUTING FUNCTIONS
-    # ========================================================================
-
     def _route_after_question(self, state: SurveyState) -> str:
-        """Determine next step after presenting a question"""
         if state["next_action"] == "complete_survey":
             return "complete_survey"
         return "wait_for_answer"
 
     def _route_after_answer(self, state: SurveyState) -> str:
-        """Determine next step after processing an answer"""
         total_asked = state["total_questions_asked"]
         total_available = len(state["all_questions"])
 
-        # Check if we should end survey
         if total_asked >= settings.max_survey_questions:
             return "complete_survey"
 
         if total_asked >= settings.min_survey_questions:
-            # Can optionally end or continue
-            # For now, generate followup every 3 questions
             if total_asked % 3 == 0 and total_asked < settings.max_survey_questions:
                 return "generate_followup"
             elif state["current_question_index"] >= total_available:
                 return "complete_survey"
 
-        # Continue with next question if available
         if state["current_question_index"] < total_available:
             return "ask_next"
         else:
             return "generate_followup"
 
-    # ========================================================================
-    # PUBLIC API
-    # ========================================================================
-
     def start_survey(self, user_id: str, item_id: str, form_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Start a new survey session
-        Returns the first question
-        """
-        # Create survey session in database
+        """Start new survey session, return first question"""
         session_id = db.create_survey_session(
             user_id=user_id,
             item_id=item_id,
             metadata={"form_data": form_data},
         )
 
-        # Initialize state
         initial_state: SurveyState = {
             "session_id": session_id,
             "user_id": user_id,
@@ -455,14 +401,15 @@ Generate {num_questions} follow-up questions that build on the conversation.
             "current_question_index": 0,
             "answers": [],
             "total_questions_asked": 0,
+            "skipped_questions": [],
+            "consecutive_skips": 0,
+            "asked_question_texts": [],
             "conversation_history": [],
             "next_action": "fetch_contexts",
         }
 
-        # Run graph until first question
         result = self.graph.invoke(initial_state)
 
-        # Save state to database for later retrieval
         db.update_survey_session(
             session_id=session_id,
             conversation_history=result.get("conversation_history", []),
@@ -470,7 +417,6 @@ Generate {num_questions} follow-up questions that build on the conversation.
             metadata={"form_data": form_data, "current_state": result},
         )
 
-        # Return first question
         current_q = result["all_questions"][result["current_question_index"]]
 
         return {
@@ -480,70 +426,49 @@ Generate {num_questions} follow-up questions that build on the conversation.
             "total_questions": len(result["all_questions"]),
         }
 
-    def submit_answer(
-        self, session_id: str, answer: str
-    ) -> Dict[str, Any]:
-        """
-        Submit answer and get next question
-        """
-        # Load session state from database
+    def submit_answer(self, session_id: str, answer: str) -> Dict[str, Any]:
+        """Submit answer, get next question"""
         session = db.get_survey_session(session_id)
         if not session:
             raise ValueError(f"Session not found: {session_id}")
 
-        # Reconstruct state from database
-        # (In production, you'd use a proper state store like Redis)
-        # For now, we'll store state in session_context
-
         session_context = session.get("session_context", {})
         current_state = session_context.get("current_state", {})
 
-        # Validate current question index to prevent race conditions
         current_index = current_state.get("current_question_index", 0)
         all_questions = current_state.get("all_questions", [])
 
         if current_index >= len(all_questions):
-            # Question index is out of bounds - likely due to concurrent submissions
-            # Return the current state without processing
             raise ValueError(
                 f"Invalid question index {current_index}. "
                 f"This may be due to submitting multiple answers rapidly. "
                 f"Please wait for the previous answer to be processed."
             )
 
-        # Process answer (returns partial update)
         state_update = self._process_answer(current_state, answer)
-
-        # Merge update with current state
         updated_state = {**current_state, **state_update}
 
-        # Determine next action and execute
         next_route = self._route_after_answer(updated_state)
 
         if next_route == "complete_survey":
-            # Survey completed - save state and return to API
-            # API will then invoke Agent 4 for review generation
             db.update_survey_session(
                 session_id=session_id,
                 conversation_history=updated_state.get("conversation_history", []),
-                state="survey_completed",  # Mark as survey complete, not fully completed
+                state="survey_completed",
                 metadata={"current_state": updated_state},
             )
 
             return {
                 "session_id": session_id,
-                "status": "survey_completed",  # Signal API to invoke Agent 4
+                "status": "survey_completed",
             }
         elif next_route == "generate_followup":
-            # Generate followup questions (returns partial update)
             followup_update = self._generate_followup_questions(updated_state)
             updated_state = {**updated_state, **followup_update}
 
-            # Present next question (returns partial update)
             present_update = self._present_question(updated_state)
             updated_state = {**updated_state, **present_update}
 
-        # Save updated state
         db.update_survey_session(
             session_id=session_id,
             conversation_history=updated_state.get("conversation_history", []),
@@ -551,12 +476,10 @@ Generate {num_questions} follow-up questions that build on the conversation.
             metadata={"current_state": updated_state},
         )
 
-        # Get next question with bounds checking
         next_index = updated_state["current_question_index"]
         all_questions = updated_state["all_questions"]
 
         if next_index >= len(all_questions):
-            # Should not happen, but add safeguard
             raise ValueError(
                 f"Question index {next_index} is out of bounds. "
                 f"Total questions: {len(all_questions)}"
@@ -571,22 +494,8 @@ Generate {num_questions} follow-up questions that build on the conversation.
             "total_questions": len(all_questions),
         }
 
-    # submit_review removed - review submission is now handled by Agent 4 via API endpoint
-
-    def edit_answer(
-        self, session_id: str, question_number: int, new_answer: str
-    ) -> Dict[str, Any]:
-        """
-        Edit a previous answer and branch from that question
-
-        This implements LangGraph-style branching:
-        1. Load current state
-        2. Revert to the specified question
-        3. Update the answer
-        4. Discard all subsequent answers
-        5. Return to continue from that point
-        """
-        # Load session state
+    def skip_question(self, session_id: str) -> Dict[str, Any]:
+        """Skip question with limits"""
         session = db.get_survey_session(session_id)
         if not session:
             raise ValueError(f"Session not found: {session_id}")
@@ -594,16 +503,97 @@ Generate {num_questions} follow-up questions that build on the conversation.
         session_context = session.get("session_context", {})
         current_state = session_context.get("current_state", {})
 
-        # Convert question_number (1-indexed) to question_index (0-indexed)
+        consecutive_skips = current_state.get("consecutive_skips", 0)
+        MAX_CONSECUTIVE_SKIPS = 3
+
+        if consecutive_skips >= MAX_CONSECUTIVE_SKIPS:
+            raise ValueError(
+                f"You've skipped {consecutive_skips} questions in a row. "
+                f"Please answer this question to continue the survey. "
+                f"This helps us generate better, more relevant questions for you."
+            )
+
+        total_skipped = len(current_state.get("skipped_questions", []))
+        total_answered = len(current_state.get("answers", []))
+        all_questions = current_state.get("all_questions", [])
+        current_index = current_state.get("current_question_index", 0)
+        remaining_questions = len(all_questions) - current_index
+
+        MIN_ANSWERED_QUESTIONS = 3
+        if total_answered < MIN_ANSWERED_QUESTIONS and remaining_questions <= 1:
+            raise ValueError(
+                f"You must answer at least {MIN_ANSWERED_QUESTIONS} questions to complete the survey. "
+                f"You've answered {total_answered} so far."
+            )
+
+        state_update = self._process_answer(current_state, answer=None, is_skipped=True)
+        updated_state = {**current_state, **state_update}
+
+        next_route = self._route_after_answer(updated_state)
+
+        if next_route == "complete_survey":
+            if total_answered + 1 < MIN_ANSWERED_QUESTIONS:
+                next_route = "generate_followup"
+
+        if next_route == "complete_survey":
+            db.update_survey_session(
+                session_id=session_id,
+                conversation_history=updated_state.get("conversation_history", []),
+                state="survey_completed",
+                metadata={"current_state": updated_state},
+            )
+
+            return {
+                "session_id": session_id,
+                "status": "survey_completed",
+            }
+        elif next_route == "generate_followup":
+            followup_update = self._generate_followup_questions(updated_state)
+            updated_state = {**updated_state, **followup_update}
+
+            present_update = self._present_question(updated_state)
+            updated_state = {**updated_state, **present_update}
+
+        db.update_survey_session(
+            session_id=session_id,
+            conversation_history=updated_state.get("conversation_history", []),
+            state="active",
+            metadata={"current_state": updated_state},
+        )
+
+        next_index = updated_state["current_question_index"]
+        all_questions = updated_state["all_questions"]
+
+        if next_index >= len(all_questions):
+            raise ValueError(f"Question index out of bounds after skip")
+
+        current_q = all_questions[next_index]
+
+        return {
+            "session_id": session_id,
+            "question": current_q,
+            "question_number": next_index + 1,
+            "total_questions": len(all_questions),
+            "skipped_count": len(updated_state.get("skipped_questions", [])),
+            "consecutive_skips": updated_state.get("consecutive_skips", 0),
+        }
+
+    def edit_answer(self, session_id: str, question_number: int, new_answer: str) -> Dict[str, Any]:
+        """Edit previous answer, branch from that point"""
+        session = db.get_survey_session(session_id)
+        if not session:
+            raise ValueError(f"Session not found: {session_id}")
+
+        session_context = session.get("session_context", {})
+        current_state = session_context.get("current_state", {})
+
         question_index = question_number - 1
 
         if question_index < 0 or question_index >= len(current_state.get("answers", [])):
             raise ValueError(f"Invalid question number: {question_number}")
 
-        # Branch: Keep only answers up to (but not including) the edited question
         branched_answers = current_state["answers"][:question_index]
 
-        # Update the answer at this position
         current_q = current_state["all_questions"][question_index]
         new_answer_record = {
             "question_index": question_index,
@@ -613,7 +603,6 @@ Generate {num_questions} follow-up questions that build on the conversation.
         }
         branched_answers.append(new_answer_record)
 
-        # Rebuild conversation history up to this point
         branched_conversation = []
         for ans in branched_answers:
             branched_conversation.extend([
@@ -621,17 +610,15 @@ Generate {num_questions} follow-up questions that build on the conversation.
                 {"role": "user", "content": ans["answer"]},
             ])
 
-        # Create branched state
         branched_state = {
             **current_state,
             "answers": branched_answers,
             "conversation_history": branched_conversation,
-            "current_question_index": question_index + 1,  # Move to next question
+            "current_question_index": question_index + 1,
             "total_questions_asked": len(branched_answers),
-            "generated_reviews": None,  # Clear any generated reviews
+            "generated_reviews": None,
         }
 
-        # Save branched state
         db.update_survey_session(
             session_id=session_id,
             conversation_history=branched_conversation,
@@ -639,9 +626,7 @@ Generate {num_questions} follow-up questions that build on the conversation.
             metadata={"current_state": branched_state},
         )
 
-        # Return next question (same as submit_answer flow)
         if branched_state["current_question_index"] >= len(branched_state["all_questions"]):
-            # Reached end, need to complete survey
             return {
                 "session_id": session_id,
                 "status": "completed",
@@ -659,5 +644,4 @@ Generate {num_questions} follow-up questions that build on the conversation.
         }
 
 
-# Global agent instance
 survey_agent = SurveyAgent()

@@ -1,15 +1,5 @@
 """
-Agent 2: CUSTOMER_CONTEXT_AGENT
-Stateless LangChain agent for generating customer/user-related context
-
-Workflow:
-1. Check if user purchased similar products
-   Yes → Check if user reviewed similar products
-         Yes → Extract user's concerns/expectations from their reviews
-         No  → Analyze purchase history and derive expectations
-   No  → Generate generic context based on user demographics
-2. Generate customer context (concerns, requirements, expectations)
-3. Return context to Agent 3
+Agent 2: Customer context generation from review/purchase history or demographics.
 """
 
 from langchain_openai import ChatOpenAI
@@ -20,37 +10,20 @@ from typing import List, Dict, Any
 from config import settings
 from database import db
 from utils import embedding_service
+import json
 
 
 class CustomerContext(BaseModel):
-    """Structured customer context output"""
-
-    major_concerns: List[str] = Field(
-        description="Major concerns or requirements this user has when purchasing products"
-    )
-    expectations: List[str] = Field(
-        description="User's expectations based on their history and persona"
-    )
-    purchase_motivations: List[str] = Field(
-        description="What motivates this user to make purchases (price, quality, features, etc.)"
-    )
-    pain_points: List[str] = Field(
-        description="Common pain points or frustrations from user's review history"
-    )
-    user_segment: str = Field(
-        description="User segment: budget_conscious, quality_seeker, feature_focused, brand_loyal, etc."
-    )
-    context_type: str = Field(
-        description="Type of context: 'review_history', 'purchase_history', or 'demographic'"
-    )
-    confidence_score: float = Field(
-        description="Confidence score 0-1 based on available data"
-    )
+    major_concerns: List[str] = Field(default_factory=list)
+    expectations: List[str] = Field(default_factory=list)
+    purchase_motivations: List[str] = Field(default_factory=list)
+    pain_points: List[str] = Field(default_factory=list)
+    user_segment: str = Field(default="general_user")
+    context_type: str = Field(default="demographic")
+    confidence_score: float = Field(default=0.5)
 
 
 class CustomerContextAgent:
-    """Agent 2: Generates customer-related context for survey generation"""
-
     def __init__(self):
         self.llm = ChatOpenAI(
             model=settings.openai_model,
@@ -59,97 +32,76 @@ class CustomerContextAgent:
         )
         self.parser = PydanticOutputParser(pydantic_object=CustomerContext)
 
-    def generate_context(
-        self,
-        user_email: str,
-        item_id: str,
-        has_purchased_similar: bool,
-        form_data: Dict[str, Any],
-    ) -> CustomerContext:
-        """
-        Main entry point: Generate customer context based on available data
+    def _parse_llm_response(self, response, fallback_context: CustomerContext) -> CustomerContext:
+        """Parse LLM response with fallback"""
+        try:
+            response_text = response.content if hasattr(response, "content") else str(response)
 
-        Args:
-            user_email: User's email from form
-            item_id: Product ID being surveyed
-            has_purchased_similar: Whether user purchased similar products (from form)
-            form_data: Complete form submission data
+            print(f"[CustomerContext] Response type: {type(response)}")
+            print(f"[CustomerContext] Response has content attr: {hasattr(response, 'content')}")
+            print(f"[CustomerContext] Response text length: {len(response_text) if response_text else 0}")
+            print(f"[CustomerContext] Response text preview: {response_text[:500] if response_text else 'EMPTY'}")
 
-        Returns:
-            CustomerContext with structured insights
-        """
-        # Get user from database
+            if response_text.startswith("```"):
+                first_newline = response_text.find("\n")
+                last_backticks = response_text.rfind("```")
+                if first_newline != -1 and last_backticks != -1:
+                    response_text = response_text[first_newline + 1:last_backticks].strip()
+
+            json_obj = json.loads(response_text)
+
+            if "description" in json_obj and len(json_obj) > 7:
+                json_obj = {k: v for k, v in json_obj.items() if k != "description"}
+
+            return CustomerContext(**json_obj)
+        except Exception as e:
+            print(f"Error parsing CustomerContext: {e}")
+            print(f"[CustomerContext] Full response object: {response}")
+            return fallback_context
+
+    def generate_context(self, user_email: str, item_id: str, has_purchased_similar: bool, form_data: Dict[str, Any]) -> CustomerContext:
+        """Generate customer context from history or demographics"""
         user = db.get_user_by_email(user_email)
         if not user:
-            # Create user context from form persona data
             return self._generate_from_persona_only(form_data)
 
-        # Get product for similarity search
         product = db.get_product_by_id(item_id)
         if not product:
             raise ValueError(f"Product not found with ID: {item_id}")
 
-        # Branch based on purchase history
         if has_purchased_similar:
             return self._generate_from_purchase_history(user, product, form_data)
         else:
             return self._generate_from_demographics(user)
 
-    def _generate_from_purchase_history(
-        self, user: Dict[str, Any], product: Dict[str, Any], form_data: Dict[str, Any]
-    ) -> CustomerContext:
-        """
-        Scenario 1: User has purchased similar products
-        Check if they reviewed them, then generate context
-        """
-        # Get product embedding
+    def _generate_from_purchase_history(self, user: Dict[str, Any], product: Dict[str, Any], form_data: Dict[str, Any]) -> CustomerContext:
+        """Generate context from purchase and review history"""
         product_embedding = product.get("embeddings")
         if not product_embedding:
             product_text = f"{product.get('title', '')} {product.get('description', '')}"
             product_embedding = embedding_service.generate_embedding(product_text)
         elif isinstance(product_embedding, str):
-            # Parse if stored as JSON string
             import json
             product_embedding = json.loads(product_embedding)
 
-        # Find user's similar product purchases
         similar_transactions = db.find_user_similar_product_purchases(
             user["user_id"], product_embedding, limit=settings.max_user_history
         )
 
-        # Get user's review history
         user_reviews = db.get_user_reviews(user["user_id"], limit=20)
 
-        # Check if user reviewed similar products
         reviewed_similar_items = set()
         for review in user_reviews:
-            if review.get("item_id") in [
-                txn["item_id"] for txn in similar_transactions
-            ]:
+            if review.get("item_id") in [txn["item_id"] for txn in similar_transactions]:
                 reviewed_similar_items.add(review["item_id"])
 
         if reviewed_similar_items:
-            # Scenario 1a: User reviewed similar products
-            return self._generate_from_review_history(
-                user, user_reviews, similar_transactions
-            )
+            return self._generate_from_review_history(user, user_reviews, similar_transactions)
         else:
-            # Scenario 1b: User purchased but didn't review
-            return self._generate_from_transactions_only(
-                user, similar_transactions, user_reviews
-            )
+            return self._generate_from_transactions_only(user, similar_transactions, user_reviews)
 
-    def _generate_from_review_history(
-        self,
-        user: Dict[str, Any],
-        user_reviews: List[Dict[str, Any]],
-        similar_transactions: List[Dict[str, Any]],
-    ) -> CustomerContext:
-        """
-        Scenario 1a: User has reviewed similar products
-        Extract concerns and expectations from review history
-        """
-        # Prepare review data
+    def _generate_from_review_history(self, user: Dict[str, Any], user_reviews: List[Dict[str, Any]], similar_transactions: List[Dict[str, Any]]) -> CustomerContext:
+        """Extract concerns from user's review history"""
         review_texts = []
         for review in user_reviews[:15]:
             product_title = review.get("products", {}).get("title", "Unknown Product")
@@ -162,22 +114,15 @@ class CustomerContextAgent:
 
         review_summary = "\n\n".join(review_texts)
 
-        # Create prompt
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """You are a customer behavior analyst. Analyze this user's review history to understand their:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a customer behavior analyst. Analyze this user's review history to understand their:
 - Major concerns when buying products
 - Expectations and standards
 - What motivates their purchases
 - Common pain points
 
-Extract real patterns from their reviews. Be specific and actionable.""",
-                ),
-                (
-                    "human",
-                    """User Profile:
+Extract real patterns from their reviews. Be specific and actionable."""),
+            ("human", """User Profile:
 Name: {name}
 Age: {age}
 Location: {location}
@@ -191,41 +136,39 @@ User's Past Reviews:
 
 Analyze this user's review history and purchase patterns. What are their major concerns, expectations, and pain points?
 
-{format_instructions}""",
-                ),
-            ]
-        )
+{format_instructions}"""),
+        ])
 
-        # Generate context
-        chain = prompt | self.llm | self.parser
-        context = chain.invoke(
-            {
-                "name": user.get("name", "Unknown"),
-                "age": user.get("age", "Unknown"),
-                "location": user.get("location", "Unknown"),
-                "gender": user.get("gender", "Unknown"),
-                "transaction_count": len(similar_transactions),
-                "review_count": len(user_reviews),
-                "reviews": review_summary,
-                "format_instructions": self.parser.get_format_instructions(),
-            }
+        chain = prompt | self.llm
+        response = chain.invoke({
+            "name": user.get("name", "Unknown"),
+            "age": user.get("age", "Unknown"),
+            "location": user.get("location", "Unknown"),
+            "gender": user.get("gender", "Unknown"),
+            "transaction_count": len(similar_transactions),
+            "review_count": len(user_reviews),
+            "reviews": review_summary,
+            "format_instructions": self.parser.get_format_instructions(),
+        })
+
+        fallback = CustomerContext(
+            major_concerns=["Product quality and value"],
+            expectations=["Good performance"],
+            purchase_motivations=["Based on review history"],
+            pain_points=["Limited data"],
+            user_segment="review_based",
+            context_type="review_history",
+            confidence_score=0.5
         )
+        context = self._parse_llm_response(response, fallback)
 
         context.context_type = "review_history"
         context.confidence_score = min(0.9, 0.6 + (len(user_reviews) / 40))
 
         return context
 
-    def _generate_from_transactions_only(
-        self,
-        user: Dict[str, Any],
-        similar_transactions: List[Dict[str, Any]],
-        user_reviews: List[Dict[str, Any]],
-    ) -> CustomerContext:
-        """
-        Scenario 1b: User purchased similar products but didn't review them
-        Derive expectations from purchase history and any other reviews
-        """
+    def _generate_from_transactions_only(self, user: Dict[str, Any], similar_transactions: List[Dict[str, Any]], user_reviews: List[Dict[str, Any]]) -> CustomerContext:
+        """Derive expectations from purchase history"""
         # Prepare transaction data
         transaction_texts = []
         for txn in similar_transactions[:10]:
@@ -281,9 +224,9 @@ what are their likely concerns, expectations, and motivations?
             ]
         )
 
-        # Generate context
-        chain = prompt | self.llm | self.parser
-        context = chain.invoke(
+        # Generate context with manual parsing
+        chain = prompt | self.llm
+        response = chain.invoke(
             {
                 "name": user.get("name", "Unknown"),
                 "age": user.get("age", "Unknown"),
@@ -294,16 +237,24 @@ what are their likely concerns, expectations, and motivations?
             }
         )
 
+        fallback = CustomerContext(
+            major_concerns=["Product reliability"],
+            expectations=["Consistent quality"],
+            purchase_motivations=["Based on past purchases"],
+            pain_points=["Limited feedback"],
+            user_segment="purchase_based",
+            context_type="purchase_history",
+            confidence_score=0.5
+        )
+        context = self._parse_llm_response(response, fallback)
+
         context.context_type = "purchase_history"
         context.confidence_score = min(0.7, 0.5 + (len(similar_transactions) / 20))
 
         return context
 
     def _generate_from_demographics(self, user: Dict[str, Any]) -> CustomerContext:
-        """
-        Scenario 2: User has no similar purchase history
-        Generate generic context based on demographics
-        """
+        """Generate context from demographics"""
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -332,9 +283,9 @@ This user has no similar purchase history. Based on their demographic profile, w
             ]
         )
 
-        # Generate context
-        chain = prompt | self.llm | self.parser
-        context = chain.invoke(
+        # Generate context with manual parsing
+        chain = prompt | self.llm
+        response = chain.invoke(
             {
                 "name": user.get("name", "Unknown"),
                 "age": user.get("age", "Unknown"),
@@ -345,16 +296,24 @@ This user has no similar purchase history. Based on their demographic profile, w
             }
         )
 
+        fallback = CustomerContext(
+            major_concerns=["General consumer concerns"],
+            expectations=["Standard expectations"],
+            purchase_motivations=["Based on demographics"],
+            pain_points=["No purchase history"],
+            user_segment="new_user",
+            context_type="demographic",
+            confidence_score=0.5
+        )
+        context = self._parse_llm_response(response, fallback)
+
         context.context_type = "demographic"
         context.confidence_score = 0.5  # Medium confidence for demographic-only context
 
         return context
 
     def _generate_from_persona_only(self, form_data: Dict[str, Any]) -> CustomerContext:
-        """
-        Scenario 3: New user with no existing transactions in the database.
-        Context should be generated solely from the persona data provided in the form.
-        """
+        """Generate context from form persona data only"""
         persona = form_data.get("userPersona", {})
 
         prompt = ChatPromptTemplate.from_messages(
@@ -384,9 +343,9 @@ This is a new user with no purchase or review history. Based on their profile, g
             ]
         )
 
-        # Generate context
-        chain = prompt | self.llm | self.parser
-        context = chain.invoke(
+        # Generate context with manual parsing
+        chain = prompt | self.llm
+        response = chain.invoke(
             {
                 "name": persona.get("name", "Unknown"),
                 "email": persona.get("email", "unknown@example.com"),
@@ -396,11 +355,21 @@ This is a new user with no purchase or review history. Based on their profile, g
             }
         )
 
+        fallback = CustomerContext(
+            major_concerns=["General new user concerns"],
+            expectations=["Basic expectations"],
+            purchase_motivations=["Based on persona"],
+            pain_points=["No historical data"],
+            user_segment="new_user",
+            context_type="demographic",
+            confidence_score=0.3
+        )
+        context = self._parse_llm_response(response, fallback)
+
         context.context_type = "demographic"
         context.confidence_score = 0.3  # Low confidence for persona-only context
 
         return context
 
 
-# Global agent instance
 customer_context_agent = CustomerContextAgent()

@@ -35,8 +35,10 @@ export default function HomePage() {
   // Survey states
   const [surveySession, setSurveySession] = useState<SurveySession | null>(null)
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
+  const [otherText, setOtherText] = useState<string>('')  // For "Other" option text input
   const [isLoadingSurvey, setIsLoadingSurvey] = useState(false)
   const [surveyError, setSurveyError] = useState<string | null>(null)
+  const [skipWarning, setSkipWarning] = useState<string | null>(null)
 
   // Review states (Agent 4)
   const [reviewOptions, setReviewOptions] = useState<ReviewOption[]>([])
@@ -140,6 +142,15 @@ export default function HomePage() {
       summaryPaneRef.current.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }, [isSurveyPaneExpanded, isSummaryPaneMinimized, showSurveyUI])
+
+  // Scroll Summary pane to top when form is first submitted (FP -> SMP transition)
+  useEffect(() => {
+    if (isSubmitted && !showSurveyUI && summaryPaneRef.current) {
+      setTimeout(() => {
+        summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 100)
+    }
+  }, [isSubmitted, showSurveyUI])
 
   // Toggle Survey UI pane
   const toggleSurveyUIPane = () => {
@@ -291,11 +302,20 @@ export default function HomePage() {
 
     setIsLoadingSurvey(true)
     setSurveyError(null)
+    setSkipWarning(null)
 
     try {
-      const answer = surveySession.question?.allow_multiple
-        ? selectedOptions
-        : selectedOptions[0]
+      // Handle "Other" option with text input
+      let finalAnswer = surveySession.question?.allow_multiple
+        ? selectedOptions.map(opt => {
+            if (opt.toLowerCase() === 'other' && otherText.trim()) {
+              return `Other: ${otherText.trim()}`
+            }
+            return opt
+          })
+        : selectedOptions[0].toLowerCase() === 'other' && otherText.trim()
+          ? `Other: ${otherText.trim()}`
+          : selectedOptions[0]
 
       const response = await fetch('/api/survey/answer', {
         method: 'POST',
@@ -304,7 +324,7 @@ export default function HomePage() {
         },
         body: JSON.stringify({
           session_id: surveySession.session_id,
-          answer,
+          answer: finalAnswer,
         }),
       })
 
@@ -319,7 +339,7 @@ export default function HomePage() {
       // Add response to history
       const newResponse: SurveyResponse = {
         question: surveySession.question!.question_text,
-        answer,
+        answer: finalAnswer,
         question_number: surveySession.question_number,
       }
 
@@ -346,8 +366,9 @@ export default function HomePage() {
         })
       }
 
-      // Clear selected options for next question
+      // Clear selected options and other text for next question
       setSelectedOptions([])
+      setOtherText('')
     } catch (error: any) {
       console.error('Error submitting answer:', error)
       setSurveyError(error.message || 'Failed to submit answer')
@@ -356,9 +377,86 @@ export default function HomePage() {
     }
   }
 
+  // Skip current question
+  const skipQuestion = async () => {
+    if (!surveySession?.session_id) return
+
+    setIsLoadingSurvey(true)
+    setSurveyError(null)
+    setSkipWarning(null)
+
+    try {
+      const response = await fetch('/api/survey/skip', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: surveySession.session_id,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        // Show skip limit warning
+        setSkipWarning(data.error || 'Unable to skip this question')
+        return
+      }
+
+      // Clear selections for next question
+      setSelectedOptions([])
+      setOtherText('')
+
+      // Check if survey is completed
+      if (data.status === 'survey_completed') {
+        setSurveySession({
+          ...surveySession,
+          status: 'survey_completed',
+        })
+        await generateReviews(surveySession.session_id)
+      } else {
+        // Continue with next question
+        setSurveySession({
+          ...surveySession,
+          question: data.question,
+          question_number: data.question_number,
+          total_questions: data.total_questions,
+          status: data.status,
+        })
+      }
+    } catch (error: any) {
+      console.error('Error skipping question:', error)
+      setSurveyError(error.message || 'Failed to skip question')
+    } finally {
+      setIsLoadingSurvey(false)
+    }
+  }
+
   // Toggle option selection
   const toggleOption = (option: string) => {
     if (!surveySession?.question) return
+
+    // Handle "All of the above" logic for multi-select questions
+    if (surveySession.question.allow_multiple && option.toLowerCase().includes('all of the above')) {
+      if (selectedOptions.includes(option)) {
+        // Unselecting "All of the above" - revert to multi-select mode
+        setSelectedOptions([])
+      } else {
+        // Selecting "All of the above" - make it single selection
+        setSelectedOptions([option])
+      }
+      return
+    }
+
+    // If "All of the above" was previously selected, unselect it
+    const allOfAboveOption = surveySession.question.options.find(opt =>
+      opt.toLowerCase().includes('all of the above')
+    )
+    if (allOfAboveOption && selectedOptions.includes(allOfAboveOption)) {
+      setSelectedOptions([option])
+      return
+    }
 
     if (surveySession.question.allow_multiple) {
       // Multiple selection
@@ -539,6 +637,10 @@ export default function HomePage() {
       if (result.success) {
         setMockDataSummary(result.summary)
         setIsSubmitted(true)
+        // Scroll Summary pane to top after form submission
+        setTimeout(() => {
+          summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+        }, 200)
       } else {
         alert(`Error: ${result.error}`)
       }
@@ -1072,57 +1174,96 @@ export default function HomePage() {
                     </p>
                     <div className="space-y-3">
                       {surveySession.question.options.map((option, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => !isLoadingSurvey && toggleOption(option)}
-                          disabled={isLoadingSurvey}
-                          className={`w-full text-left p-4 border-2 rounded-xl transition-all duration-200 text-gray-900 font-medium shadow-sm hover:shadow-md ${
-                            selectedOptions.includes(option)
-                              ? 'border-emerald-600 bg-gradient-to-r from-emerald-100 to-teal-100 scale-[1.02] shadow-md'
-                              : 'border-gray-300 hover:border-emerald-500 hover:bg-gradient-to-r hover:from-emerald-50 hover:to-teal-50'
-                          } ${isLoadingSurvey ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                          <div className="flex items-center gap-3">
-                            {surveySession.question?.allow_multiple && (
-                              <div className={`w-6 h-6 border-2 rounded-md shadow-sm transition-all ${selectedOptions.includes(option) ? 'bg-emerald-600 border-emerald-600 scale-110' : 'border-gray-400 bg-white'}`}>
-                                {selectedOptions.includes(option) && (
-                                  <svg className="w-full h-full text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                )}
-                              </div>
-                            )}
-                            {!surveySession.question?.allow_multiple && (
-                              <div className={`w-6 h-6 border-2 rounded-full shadow-sm transition-all ${selectedOptions.includes(option) ? 'bg-emerald-600 border-emerald-600 scale-110' : 'border-gray-400 bg-white'}`}>
-                                {selectedOptions.includes(option) && (
-                                  <div className="w-full h-full flex items-center justify-center">
-                                    <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            <span>{option}</span>
-                          </div>
-                        </button>
+                        <div key={idx}>
+                          <button
+                            onClick={() => !isLoadingSurvey && toggleOption(option)}
+                            disabled={isLoadingSurvey}
+                            className={`w-full text-left p-4 border-2 rounded-xl transition-all duration-200 text-gray-900 font-medium shadow-sm hover:shadow-md ${
+                              selectedOptions.includes(option)
+                                ? 'border-emerald-600 bg-gradient-to-r from-emerald-100 to-teal-100 scale-[1.02] shadow-md'
+                                : 'border-gray-300 hover:border-emerald-500 hover:bg-gradient-to-r hover:from-emerald-50 hover:to-teal-50'
+                            } ${isLoadingSurvey ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              {surveySession.question?.allow_multiple && (
+                                <div className={`w-6 h-6 border-2 rounded-md shadow-sm transition-all ${selectedOptions.includes(option) ? 'bg-emerald-600 border-emerald-600 scale-110' : 'border-gray-400 bg-white'}`}>
+                                  {selectedOptions.includes(option) && (
+                                    <svg className="w-full h-full text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </div>
+                              )}
+                              {!surveySession.question?.allow_multiple && (
+                                <div className={`w-6 h-6 border-2 rounded-full shadow-sm transition-all ${selectedOptions.includes(option) ? 'bg-emerald-600 border-emerald-600 scale-110' : 'border-gray-400 bg-white'}`}>
+                                  {selectedOptions.includes(option) && (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              <span>{option}</span>
+                            </div>
+                          </button>
+                          {/* "Other" text input */}
+                          {option.toLowerCase() === 'other' && selectedOptions.includes(option) && (
+                            <input
+                              type="text"
+                              value={otherText}
+                              onChange={(e) => setOtherText(e.target.value)}
+                              placeholder="Please specify..."
+                              className="mt-2 w-full p-3 border-2 border-emerald-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition-all"
+                              disabled={isLoadingSurvey}
+                            />
+                          )}
+                        </div>
                       ))}
                     </div>
-                    <button
-                      onClick={submitAnswer}
-                      disabled={selectedOptions.length === 0 || isLoadingSurvey}
-                      className="mt-5 w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-4 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg"
-                    >
-                      {isLoadingSurvey ? (
-                        <span className="flex items-center justify-center gap-2">
-                          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    {/* Skip Warning Message */}
+                    {skipWarning && (
+                      <div className="mt-4 p-4 bg-yellow-50 border-l-4 border-yellow-500 rounded-lg">
+                        <div className="flex items-start gap-2">
+                          <svg className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                           </svg>
-                          Submitting...
-                        </span>
-                      ) : (
-                        'Submit Answer'
-                      )}
-                    </button>
+                          <div>
+                            <p className="text-sm text-yellow-800 font-medium">{skipWarning}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-5 flex gap-3">
+                      <button
+                        onClick={submitAnswer}
+                        disabled={selectedOptions.length === 0 || isLoadingSurvey || (selectedOptions.includes('Other') && !otherText.trim())}
+                        className="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-4 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg"
+                      >
+                        {isLoadingSurvey ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Submitting...
+                          </span>
+                        ) : (
+                          'Submit Answer'
+                        )}
+                      </button>
+                      <button
+                        onClick={skipQuestion}
+                        disabled={isLoadingSurvey}
+                        className="px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 py-4 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        title="Skip this question if it's not relevant to your feedback"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Skip
+                      </button>
+                    </div>
                     {surveySession.question.reasoning && (
                       <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 border-l-4 border-blue-500 rounded-lg text-sm text-gray-700 shadow-sm">
                         <div className="flex items-start gap-2">
@@ -1185,11 +1326,23 @@ export default function HomePage() {
               {/* Response Stack */}
               <div className="space-y-3">
                 {surveySession && surveySession.responses.length > 0 ? (
-                  surveySession.responses.map((response, idx) => (
+                  surveySession.responses.map((response, idx) => {
+                    // Disable editing after reviews are generated
+                    const isEditingDisabled = surveySession.status === 'reviews_generated' || surveySession.status === 'completed'
+
+                    return (
                     <div
                       key={idx}
-                      className="p-4 bg-white/95 backdrop-blur-sm rounded-xl shadow-md border-l-4 border-teal-400 hover:border-yellow-400 hover:bg-white cursor-pointer transition-all duration-200 group hover:shadow-lg hover:scale-[1.01]"
+                      className={`p-4 bg-white/95 backdrop-blur-sm rounded-xl shadow-md border-l-4 border-teal-400 transition-all duration-200 group ${
+                        isEditingDisabled
+                          ? 'opacity-75 cursor-not-allowed'
+                          : 'hover:border-yellow-400 hover:bg-white cursor-pointer hover:shadow-lg hover:scale-[1.01]'
+                      }`}
                       onClick={() => {
+                        if (isEditingDisabled) {
+                          alert('Survey responses cannot be edited after reviews have been generated. Please restart the survey for a new iteration.')
+                          return
+                        }
                         if (confirm(`Edit your answer to question ${response.question_number}?\n\nThis will discard all answers after this question and let you continue from here.`)) {
                           const newAnswer = prompt(
                             `${response.question}\n\nCurrent answer: ${Array.isArray(response.answer) ? response.answer.join(', ') : response.answer}\n\nEnter new answer:`,
@@ -1200,7 +1353,7 @@ export default function HomePage() {
                           }
                         }
                       }}
-                      title="Click to edit this answer"
+                      title={isEditingDisabled ? 'Editing disabled after review generation' : 'Click to edit this answer'}
                     >
                       <div className="flex items-start gap-2 mb-2">
                         <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 rounded-md flex-shrink-0">
@@ -1213,16 +1366,17 @@ export default function HomePage() {
                       <p className="text-gray-900 font-semibold pl-2 border-l-2 border-emerald-200">
                         {Array.isArray(response.answer) ? response.answer.join(', ') : response.answer}
                       </p>
-                      <div className="flex items-center gap-1 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className={`flex items-center gap-1 mt-3 transition-opacity ${isEditingDisabled ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'}`}>
                         <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                         </svg>
                         <p className="text-xs text-yellow-700 font-medium">
-                          Click to edit and branch from here
+                          {isEditingDisabled ? 'Editing disabled' : 'Click to edit and branch from here'}
                         </p>
                       </div>
                     </div>
-                  ))
+                    )
+                  })
                 ) : (
                   <div className="p-6 bg-white/20 backdrop-blur-sm border-2 border-dashed border-white/40 rounded-xl">
                     <div className="flex items-center gap-2 text-white/90">

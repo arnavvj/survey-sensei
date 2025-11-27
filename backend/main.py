@@ -1,10 +1,9 @@
 """
 FastAPI Backend for Survey Sensei
-Main entry point for the agent orchestration API
 """
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastAPI.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional, Union
 from config import settings
@@ -13,14 +12,12 @@ from agents.review_gen_agent import review_gen_agent
 from database import db
 import uvicorn
 
-# Initialize FastAPI app
 app = FastAPI(
     title="Survey Sensei Backend",
     description="AI-powered survey generation and review creation backend",
     version="2.0.0",
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url, "http://localhost:3000"],
@@ -30,22 +27,13 @@ app.add_middleware(
 )
 
 
-# ============================================================================
-# REQUEST/RESPONSE MODELS
-# ============================================================================
-
-
 class StartSurveyRequest(BaseModel):
-    """Request to start a new survey session"""
-
     user_id: str
     item_id: str
     form_data: Dict[str, Any]
 
 
 class StartSurveyResponse(BaseModel):
-    """Response with first survey question"""
-
     session_id: str
     question: Dict[str, Any]
     question_number: int
@@ -53,39 +41,35 @@ class StartSurveyResponse(BaseModel):
 
 
 class SubmitAnswerRequest(BaseModel):
-    """Request to submit an answer"""
-
     session_id: str
-    answer: Union[str, List[str]]  # Can be single string or array for multi-select
+    answer: Union[str, List[str]]
 
 
 class EditAnswerRequest(BaseModel):
-    """Request to edit a previous answer"""
-
     session_id: str
     question_number: int
     answer: str
 
 
 class SubmitAnswerResponse(BaseModel):
-    """Response with next question or survey completion status"""
-
     session_id: str
-    status: str  # 'continue' or 'survey_completed'
+    status: str
     question: Optional[Dict[str, Any]] = None
     question_number: Optional[int] = None
     total_questions: Optional[int] = None
+    skipped_count: Optional[int] = None
+    consecutive_skips: Optional[int] = None
+
+
+class SkipQuestionRequest(BaseModel):
+    session_id: str
 
 
 class GenerateReviewsRequest(BaseModel):
-    """Request to generate review options"""
-
     session_id: str
 
 
 class GenerateReviewsResponse(BaseModel):
-    """Response with generated review options"""
-
     session_id: str
     status: str
     review_options: List[Dict[str, Any]]
@@ -93,36 +77,24 @@ class GenerateReviewsResponse(BaseModel):
 
 
 class SubmitReviewRequest(BaseModel):
-    """Request to submit selected review"""
-
     session_id: str
     selected_review_index: int
 
 
 class SubmitReviewResponse(BaseModel):
-    """Response after saving review"""
-
     session_id: str
     status: str
     review: Dict[str, Any]
 
 
 class HealthResponse(BaseModel):
-    """Health check response"""
-
     status: str
     version: str
     environment: str
 
 
-# ============================================================================
-# ENDPOINTS
-# ============================================================================
-
-
 @app.get("/", response_model=HealthResponse)
 async def root():
-    """Health check endpoint"""
     return {
         "status": "healthy",
         "version": "2.0.0",
@@ -132,7 +104,6 @@ async def root():
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Detailed health check"""
     return {
         "status": "healthy",
         "version": "2.0.0",
@@ -142,20 +113,7 @@ async def health_check():
 
 @app.post("/api/survey/start", response_model=StartSurveyResponse)
 async def start_survey(request: StartSurveyRequest):
-    """
-    Start a new survey session
-
-    This endpoint:
-    1. Invokes Agent 1 (Product Context) and Agent 2 (Customer Context) in parallel
-    2. Generates initial survey questions using Agent 3
-    3. Returns the first question to display
-
-    Args:
-        request: User ID, item ID, and form data
-
-    Returns:
-        First survey question with session ID
-    """
+    """Start new survey session, return first question"""
     try:
         result = survey_agent.start_survey(
             user_id=request.user_id,
@@ -179,21 +137,7 @@ async def start_survey(request: StartSurveyRequest):
 
 @app.post("/api/survey/answer", response_model=SubmitAnswerResponse)
 async def submit_answer(request: SubmitAnswerRequest):
-    """
-    Submit an answer and get next question
-
-    This endpoint:
-    1. Records the user's answer
-    2. Updates conversation state
-    3. Determines if more questions needed or survey complete
-    4. Returns next question OR survey_completed status (frontend then calls generate_reviews)
-
-    Args:
-        request: Session ID and user's answer
-
-    Returns:
-        Next question or survey_completed status
-    """
+    """Submit answer, get next question or completion status"""
     try:
         result = survey_agent.submit_answer(
             session_id=request.session_id,
@@ -221,23 +165,41 @@ async def submit_answer(request: SubmitAnswerRequest):
         raise HTTPException(status_code=500, detail=f"Failed to submit answer: {str(e)}")
 
 
+@app.post("/api/survey/skip", response_model=SubmitAnswerResponse)
+async def skip_question(request: SkipQuestionRequest):
+    """Skip question and move to next"""
+    try:
+        result = survey_agent.skip_question(session_id=request.session_id)
+
+        if result.get("status") == "survey_completed":
+            return SubmitAnswerResponse(
+                session_id=result["session_id"],
+                status="survey_completed",
+            )
+        else:
+            return SubmitAnswerResponse(
+                session_id=result["session_id"],
+                status="continue",
+                question=result["question"],
+                question_number=result["question_number"],
+                total_questions=result["total_questions"],
+                skipped_count=result.get("skipped_count"),
+                consecutive_skips=result.get("consecutive_skips"),
+            )
+
+    except ValueError as e:
+        # Skip limit errors
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        print(f"ERROR in skip_question: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to skip question: {str(e)}")
+
+
 @app.post("/api/survey/edit", response_model=SubmitAnswerResponse)
 async def edit_answer(request: EditAnswerRequest):
-    """
-    Edit a previous answer and branch from that question
-
-    This endpoint:
-    1. Reverts the survey state to the specified question
-    2. Updates the answer
-    3. Discards all subsequent answers
-    4. Returns the next question to continue from
-
-    Args:
-        request: Session ID, question number, and new answer
-
-    Returns:
-        Next question to continue the survey
-    """
+    """Edit previous answer and branch from that point"""
     try:
         result = survey_agent.edit_answer(
             session_id=request.session_id,
@@ -269,22 +231,8 @@ async def edit_answer(request: EditAnswerRequest):
 
 @app.post("/api/reviews/generate", response_model=GenerateReviewsResponse)
 async def generate_reviews(request: GenerateReviewsRequest):
-    """
-    Generate review options using Agent 4
-
-    This endpoint:
-    1. Retrieves survey responses from completed survey
-    2. Invokes Agent 4 (REVIEW_GEN_AGENT) for intelligent review generation
-    3. Returns 2-3 review options with sentiment-based star ratings
-
-    Args:
-        request: Session ID
-
-    Returns:
-        Review options with star ratings based on survey sentiment
-    """
+    """Generate review options using Agent 4"""
     try:
-        # Get session data
         session = db.get_survey_session(request.session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -292,16 +240,13 @@ async def generate_reviews(request: GenerateReviewsRequest):
         session_context = session.get("session_context", {})
         current_state = session_context.get("current_state", {})
 
-        # Get product info
         product = db.get_product_by_id(current_state.get("item_id"))
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        # Get user's previous reviews for writing style analysis
         user_id = current_state.get("user_id")
         user_reviews = db.get_user_reviews(user_id, limit=10) if user_id else []
 
-        # Invoke Agent 4 to generate reviews with writing style analysis
         review_options = review_gen_agent.generate_reviews(
             survey_responses=current_state.get("answers", []),
             product_context=current_state.get("product_context", {}),

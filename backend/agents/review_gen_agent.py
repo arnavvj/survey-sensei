@@ -273,6 +273,14 @@ Total reviews analyzed: {review_count}
             import json
 
             response_text = response.content if hasattr(response, "content") else str(response)
+
+            # Strip markdown code block wrappers if present (```json\n...\n```)
+            if response_text.startswith("```"):
+                first_newline = response_text.find("\n")
+                last_backticks = response_text.rfind("```")
+                if first_newline != -1 and last_backticks != -1:
+                    response_text = response_text[first_newline + 1:last_backticks].strip()
+
             json_obj = json.loads(response_text)
 
             # If the LLM wrapped the response with extra fields, extract the actual data
