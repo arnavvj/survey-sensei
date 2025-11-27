@@ -3,7 +3,7 @@ FastAPI Backend for Survey Sensei
 """
 
 from fastapi import FastAPI, HTTPException
-from fastAPI.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional, Union
 from config import settings
