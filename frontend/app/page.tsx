@@ -758,7 +758,8 @@ export default function HomePage() {
             </>
           )}
 
-          {isSubmitted && !isSurveyPaneExpanded && !showSurveyUI && (
+          {/* Minimized Form View (2-pane mode only) */}
+          {isSubmitted && !isSurveyPaneExpanded && !showSurveyUI && !showReviewPane && (
             <div className="h-full relative">
               {/* Survey Sensei Logo - Vertically Centered at x=0 */}
               <div className="fixed top-1/2 left-0 transform -translate-y-1/2 z-20 pl-2">
@@ -778,13 +779,31 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Expanded View: Show Filled Form (Read-Only) */}
-          {isSubmitted && (
-            (showReviewPane && activePaneIn4PaneMode === 'form') ||
-            (!showReviewPane && showSurveyUI && activePaneIn3PaneMode === 'form') ||
-            (!showSurveyUI && isSurveyPaneExpanded)
-          ) && (
-            <div className="h-full p-8">
+          {/* Expanded View: Show Filled Form (Read-Only) - Always visible after form submission */}
+          {(() => {
+            const shouldShowFrozenForm = isSubmitted && (
+              (showReviewPane && activePaneIn4PaneMode === 'form') ||
+              (!showReviewPane && showSurveyUI && activePaneIn3PaneMode === 'form') ||
+              (!showSurveyUI && isSurveyPaneExpanded)
+            );
+
+            // Debug logging
+            if (isSubmitted) {
+              console.log('FPE Debug:', {
+                isSubmitted,
+                showReviewPane,
+                activePaneIn4PaneMode,
+                showSurveyUI,
+                activePaneIn3PaneMode,
+                isSurveyPaneExpanded,
+                shouldShowFrozenForm,
+                isReviewSubmitted,
+              });
+            }
+
+            return shouldShowFrozenForm;
+          })() && (
+            <div className="h-full p-8 overflow-y-auto">
               {/* Survey Sensei Heading */}
               <h2 className="text-3xl font-bold text-gray-900 mb-6">Survey Sensei</h2>
 
@@ -979,11 +998,18 @@ export default function HomePage() {
           ) : (
             <div className="flex flex-col h-full">
             {/* Survey Questions Area (Top 65%) */}
-            <div className="h-[65%] bg-white p-8 overflow-y-auto border-b-2 border-gray-200">
+            <div className="h-[65%] bg-gradient-to-br from-white via-emerald-50 to-white p-8 overflow-y-auto border-b-4 border-emerald-400 shadow-inner">
               <div className="max-w-3xl mx-auto">
-                <h2 className="text-3xl font-bold text-gray-900 mb-6">
-                  Personalized Survey
-                </h2>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-3 rounded-xl shadow-lg">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                    </svg>
+                  </div>
+                  <h2 className="text-3xl font-bold bg-gradient-to-r from-emerald-700 to-teal-700 bg-clip-text text-transparent">
+                    Personalized Survey
+                  </h2>
+                </div>
 
               {/* Loading State */}
               {isLoadingSurvey && !surveySession && (
@@ -1016,10 +1042,13 @@ export default function HomePage() {
               {/* Survey Question */}
               {surveySession && surveySession.status !== 'completed' && surveySession.question && (
                 <div className="space-y-6">
-                  <div className="p-6 bg-[#BDF5BD] border-2 border-gray-200 rounded-lg shadow-sm">
+                  <div className="p-6 bg-gradient-to-br from-emerald-100 via-teal-50 to-emerald-100 border-2 border-emerald-300 rounded-xl shadow-lg hover:shadow-xl transition-shadow">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-xl font-semibold text-gray-900">
-                        Question {surveySession.question_number} of {surveySession.total_questions}
+                      <h3 className="text-xl font-bold text-emerald-900 flex items-center gap-2">
+                        <span className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-sm">
+                          {surveySession.question_number}/{surveySession.total_questions}
+                        </span>
+                        <span>Question {surveySession.question_number}</span>
                       </h3>
                       <div className="flex items-center gap-2">
                         {surveySession.question.allow_multiple && (
@@ -1038,24 +1067,24 @@ export default function HomePage() {
                         </button>
                       </div>
                     </div>
-                    <p className="text-gray-900 mb-4 text-lg">
+                    <p className="text-gray-900 mb-5 text-lg font-medium leading-relaxed">
                       {surveySession.question.question_text}
                     </p>
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {surveySession.question.options.map((option, idx) => (
                         <button
                           key={idx}
                           onClick={() => !isLoadingSurvey && toggleOption(option)}
                           disabled={isLoadingSurvey}
-                          className={`w-full text-left p-3 border-2 rounded-lg transition-all text-gray-900 font-medium ${
+                          className={`w-full text-left p-4 border-2 rounded-xl transition-all duration-200 text-gray-900 font-medium shadow-sm hover:shadow-md ${
                             selectedOptions.includes(option)
-                              ? 'border-primary-600 bg-primary-100'
-                              : 'border-gray-300 hover:border-primary-500 hover:bg-green-200'
+                              ? 'border-emerald-600 bg-gradient-to-r from-emerald-100 to-teal-100 scale-[1.02] shadow-md'
+                              : 'border-gray-300 hover:border-emerald-500 hover:bg-gradient-to-r hover:from-emerald-50 hover:to-teal-50'
                           } ${isLoadingSurvey ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-3">
                             {surveySession.question?.allow_multiple && (
-                              <div className={`w-5 h-5 border-2 rounded ${selectedOptions.includes(option) ? 'bg-primary-600 border-primary-600' : 'border-gray-300'}`}>
+                              <div className={`w-6 h-6 border-2 rounded-md shadow-sm transition-all ${selectedOptions.includes(option) ? 'bg-emerald-600 border-emerald-600 scale-110' : 'border-gray-400 bg-white'}`}>
                                 {selectedOptions.includes(option) && (
                                   <svg className="w-full h-full text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -1064,10 +1093,10 @@ export default function HomePage() {
                               </div>
                             )}
                             {!surveySession.question?.allow_multiple && (
-                              <div className={`w-5 h-5 border-2 rounded-full ${selectedOptions.includes(option) ? 'bg-primary-600 border-primary-600' : 'border-gray-300'}`}>
+                              <div className={`w-6 h-6 border-2 rounded-full shadow-sm transition-all ${selectedOptions.includes(option) ? 'bg-emerald-600 border-emerald-600 scale-110' : 'border-gray-400 bg-white'}`}>
                                 {selectedOptions.includes(option) && (
                                   <div className="w-full h-full flex items-center justify-center">
-                                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                                    <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
                                   </div>
                                 )}
                               </div>
@@ -1080,13 +1109,30 @@ export default function HomePage() {
                     <button
                       onClick={submitAnswer}
                       disabled={selectedOptions.length === 0 || isLoadingSurvey}
-                      className="mt-4 w-full btn-primary py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="mt-5 w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-4 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg"
                     >
-                      {isLoadingSurvey ? 'Submitting...' : 'Submit Answer'}
+                      {isLoadingSurvey ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Submitting...
+                        </span>
+                      ) : (
+                        'Submit Answer'
+                      )}
                     </button>
                     {surveySession.question.reasoning && (
-                      <div className="mt-4 p-3 bg-blue-50 rounded text-sm text-gray-700">
-                        <strong>Why we're asking:</strong> {surveySession.question.reasoning}
+                      <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 border-l-4 border-blue-500 rounded-lg text-sm text-gray-700 shadow-sm">
+                        <div className="flex items-start gap-2">
+                          <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <div>
+                            <strong className="text-blue-900">Why we're asking:</strong> {surveySession.question.reasoning}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1123,11 +1169,18 @@ export default function HomePage() {
             </div>
 
             {/* Answer Stack Area (Bottom 35%) */}
-            <div className="h-[35%] bg-emerald-600 p-6 overflow-y-auto">
+            <div className="h-[35%] bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-700 p-6 overflow-y-auto shadow-inner">
             <div className="max-w-3xl mx-auto">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Your Responses ({surveySession?.responses.length || 0})
-              </h3>
+              <div className="flex items-center gap-3 mb-5">
+                <div className="bg-white/20 backdrop-blur-sm p-2 rounded-lg">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-white">
+                  Your Responses ({surveySession?.responses.length || 0})
+                </h3>
+              </div>
 
               {/* Response Stack */}
               <div className="space-y-3">
@@ -1135,7 +1188,7 @@ export default function HomePage() {
                   surveySession.responses.map((response, idx) => (
                     <div
                       key={idx}
-                      className="p-4 bg-white rounded-lg shadow-sm border-l-4 border-emerald-700 hover:border-primary-500 cursor-pointer transition-all group"
+                      className="p-4 bg-white/95 backdrop-blur-sm rounded-xl shadow-md border-l-4 border-teal-400 hover:border-yellow-400 hover:bg-white cursor-pointer transition-all duration-200 group hover:shadow-lg hover:scale-[1.01]"
                       onClick={() => {
                         if (confirm(`Edit your answer to question ${response.question_number}?\n\nThis will discard all answers after this question and let you continue from here.`)) {
                           const newAnswer = prompt(
@@ -1149,22 +1202,37 @@ export default function HomePage() {
                       }}
                       title="Click to edit this answer"
                     >
-                      <p className="text-sm text-gray-600 mb-1">
-                        Q{response.question_number}: {response.question}
-                      </p>
-                      <p className="text-gray-900 font-medium">
+                      <div className="flex items-start gap-2 mb-2">
+                        <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 rounded-md flex-shrink-0">
+                          Q{response.question_number}
+                        </span>
+                        <p className="text-sm text-gray-700 font-medium">
+                          {response.question}
+                        </p>
+                      </div>
+                      <p className="text-gray-900 font-semibold pl-2 border-l-2 border-emerald-200">
                         {Array.isArray(response.answer) ? response.answer.join(', ') : response.answer}
                       </p>
-                      <p className="text-xs text-gray-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        💡 Click to edit and branch from here
-                      </p>
+                      <div className="flex items-center gap-1 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                        <p className="text-xs text-yellow-700 font-medium">
+                          Click to edit and branch from here
+                        </p>
+                      </div>
                     </div>
                   ))
                 ) : (
-                  <div className="p-4 bg-emerald-500 border-2 border-dashed border-emerald-300 rounded-lg">
-                    <p className="text-sm text-emerald-50 italic">
-                      Your answered questions will stack here as you progress through the survey...
-                    </p>
+                  <div className="p-6 bg-white/20 backdrop-blur-sm border-2 border-dashed border-white/40 rounded-xl">
+                    <div className="flex items-center gap-2 text-white/90">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-sm italic">
+                        Your answered questions will appear here as you progress...
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
