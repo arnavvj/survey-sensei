@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { FormData, FormStep, ProductData, MockDataSummary, SurveySession, SurveyResponse } from '@/lib/types'
+import { FormData, FormStep, ProductData, MockDataSummary, SurveySession, SurveyResponse, ReviewOption } from '@/lib/types'
 import { ProductUrlField } from '@/components/form/ProductUrlField'
 import { ReviewStatusField } from '@/components/form/ReviewStatusField'
 import { SentimentSpreadField } from '@/components/form/SentimentSpreadField'
@@ -16,6 +16,7 @@ export default function HomePage() {
   const formContainerRef = useRef<HTMLDivElement>(null)
   const summaryPaneRef = useRef<HTMLDivElement>(null)
   const surveyPaneRef = useRef<HTMLDivElement>(null)
+  const reviewPaneRef = useRef<HTMLDivElement>(null)
   const [formData, setFormData] = useState<FormData>({
     productUrl: '',
   })
@@ -27,13 +28,22 @@ export default function HomePage() {
   const [isSurveyPaneExpanded, setIsSurveyPaneExpanded] = useState(false) // Survey Sensei pane expanded (90%)
   const [isSummaryPaneMinimized, setIsSummaryPaneMinimized] = useState(false) // Summary minimized to 10%
   const [showSurveyUI, setShowSurveyUI] = useState(false) // Show Survey UI (Phase 1 Part 2)
+  const [showReviewPane, setShowReviewPane] = useState(false) // Show Review Pane (4-pane mode)
   const [activePaneIn3PaneMode, setActivePaneIn3PaneMode] = useState<'form' | 'summary' | 'survey'>('survey') // Which pane is expanded in 3-pane mode
+  const [activePaneIn4PaneMode, setActivePaneIn4PaneMode] = useState<'form' | 'summary' | 'survey' | 'review'>('review') // Which pane is expanded in 4-pane mode
 
   // Survey states
   const [surveySession, setSurveySession] = useState<SurveySession | null>(null)
   const [selectedOptions, setSelectedOptions] = useState<string[]>([])
   const [isLoadingSurvey, setIsLoadingSurvey] = useState(false)
   const [surveyError, setSurveyError] = useState<string | null>(null)
+
+  // Review states (Agent 4)
+  const [reviewOptions, setReviewOptions] = useState<ReviewOption[]>([])
+  const [sentimentBand, setSentimentBand] = useState<string>('')
+  const [isGeneratingReviews, setIsGeneratingReviews] = useState(false)
+  const [selectedReviewIndex, setSelectedReviewIndex] = useState<number | null>(null)
+  const [isReviewSubmitted, setIsReviewSubmitted] = useState(false)
 
   const updateFormData = (updates: Partial<FormData>) => {
     setFormData((prev) => ({ ...prev, ...updates }))
@@ -56,7 +66,18 @@ export default function HomePage() {
 
   // Toggle Survey Sensei pane
   const toggleSurveyPane = () => {
-    if (showSurveyUI) {
+    if (showReviewPane) {
+      // In 4-pane mode
+      if (activePaneIn4PaneMode === 'form') {
+        // If form is expanded, go back to review (rightmost pane)
+        setActivePaneIn4PaneMode('review')
+        setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      } else {
+        // Expand Survey Sensei pane
+        setActivePaneIn4PaneMode('form')
+        setTimeout(() => formContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      }
+    } else if (showSurveyUI) {
       // In 3-pane mode
       if (activePaneIn3PaneMode === 'form') {
         // If form is expanded, go back to survey (rightmost pane)
@@ -83,7 +104,18 @@ export default function HomePage() {
 
   // Toggle Summary pane
   const toggleSummaryPane = () => {
-    if (showSurveyUI) {
+    if (showReviewPane) {
+      // In 4-pane mode
+      if (activePaneIn4PaneMode === 'summary') {
+        // If summary is expanded, go back to review (rightmost pane)
+        setActivePaneIn4PaneMode('review')
+        setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      } else {
+        // Expand Summary pane
+        setActivePaneIn4PaneMode('summary')
+        setTimeout(() => summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      }
+    } else if (showSurveyUI) {
       // In 3-pane mode
       if (activePaneIn3PaneMode === 'summary') {
         // If summary is expanded, go back to survey (rightmost pane)
@@ -111,7 +143,18 @@ export default function HomePage() {
 
   // Toggle Survey UI pane
   const toggleSurveyUIPane = () => {
-    if (showSurveyUI) {
+    if (showReviewPane) {
+      // In 4-pane mode
+      if (activePaneIn4PaneMode === 'survey') {
+        // If survey is expanded, go back to review (rightmost pane)
+        setActivePaneIn4PaneMode('review')
+        setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      } else {
+        // Expand Survey UI pane
+        setActivePaneIn4PaneMode('survey')
+        setTimeout(() => surveyPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      }
+    } else if (showSurveyUI) {
       // In 3-pane mode: expand Survey UI pane
       setActivePaneIn3PaneMode('survey')
       setTimeout(() => surveyPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
@@ -158,6 +201,90 @@ export default function HomePage() {
     }
   }
 
+  // Generate review options using Agent 4
+  const generateReviews = async (sessionId: string) => {
+    setIsGeneratingReviews(true)
+    setSurveyError(null)
+
+    try {
+      console.log('Generating reviews for session:', sessionId)
+      const response = await fetch('/api/reviews/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+        }),
+      })
+
+      console.log('Generate reviews response status:', response.status)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Generate reviews error response:', errorData)
+        throw new Error(errorData.error || `Failed to generate reviews (${response.status})`)
+      }
+
+      const data = await response.json()
+      console.log('Generated reviews data:', data)
+
+      setReviewOptions(data.review_options)
+      setSentimentBand(data.sentiment_band)
+
+      // Transition to 4-pane mode with Review Pane
+      setShowReviewPane(true)
+      setActivePaneIn4PaneMode('review')
+      setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+    } catch (error: any) {
+      console.error('Error generating reviews:', error)
+      setSurveyError(error.message || 'Failed to generate reviews')
+    } finally {
+      setIsGeneratingReviews(false)
+    }
+  }
+
+  // Regenerate review options (Refresh button)
+  const regenerateReviews = async () => {
+    if (!surveySession?.session_id) return
+
+    setIsGeneratingReviews(true)
+    setSurveyError(null)
+
+    try {
+      console.log('Regenerating reviews for session:', surveySession.session_id)
+      const response = await fetch('/api/reviews/regenerate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: surveySession.session_id,
+        }),
+      })
+
+      console.log('Regenerate reviews response status:', response.status)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Regenerate reviews error response:', errorData)
+        throw new Error(errorData.error || `Failed to regenerate reviews (${response.status})`)
+      }
+
+      const data = await response.json()
+      console.log('Regenerated reviews data:', data)
+
+      setReviewOptions(data.review_options)
+      setSentimentBand(data.sentiment_band)
+      setSelectedReviewIndex(null) // Clear selection
+    } catch (error: any) {
+      console.error('Error regenerating reviews:', error)
+      setSurveyError(error.message || 'Failed to regenerate reviews')
+    } finally {
+      setIsGeneratingReviews(false)
+    }
+  }
+
   // Submit answer and get next question
   const submitAnswer = async () => {
     if (!surveySession || selectedOptions.length === 0) return
@@ -182,7 +309,9 @@ export default function HomePage() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to submit answer')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.detail || errorData.error || 'Failed to submit answer'
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
@@ -194,15 +323,28 @@ export default function HomePage() {
         question_number: surveySession.question_number,
       }
 
-      setSurveySession({
-        ...surveySession,
-        question: data.question,
-        question_number: data.question_number,
-        total_questions: data.total_questions,
-        status: data.status,
-        review_options: data.review_options,
-        responses: [...surveySession.responses, newResponse],
-      })
+      // Check if survey is completed
+      if (data.status === 'survey_completed') {
+        // Update session status
+        setSurveySession({
+          ...surveySession,
+          status: 'survey_completed',
+          responses: [...surveySession.responses, newResponse],
+        })
+
+        // Automatically generate reviews using Agent 4
+        await generateReviews(surveySession.session_id)
+      } else {
+        // Continue with next question
+        setSurveySession({
+          ...surveySession,
+          question: data.question,
+          question_number: data.question_number,
+          total_questions: data.total_questions,
+          status: data.status,
+          responses: [...surveySession.responses, newResponse],
+        })
+      }
 
       // Clear selected options for next question
       setSelectedOptions([])
@@ -232,8 +374,8 @@ export default function HomePage() {
   }
 
   // Submit selected review
-  const submitReview = async (reviewIndex: number) => {
-    if (!surveySession?.session_id) return
+  const submitReview = async () => {
+    if (!surveySession?.session_id || selectedReviewIndex === null) return
 
     setIsLoadingSurvey(true)
     setSurveyError(null)
@@ -244,7 +386,7 @@ export default function HomePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: surveySession.session_id,
-          selected_review_index: reviewIndex,
+          selected_review_index: selectedReviewIndex,
         }),
       })
 
@@ -257,8 +399,9 @@ export default function HomePage() {
       // Update session to show review has been submitted
       setSurveySession({
         ...surveySession,
-        status: 'review_submitted' as any,
+        status: 'completed',
       })
+      setIsReviewSubmitted(true)
 
       console.log('Review submitted successfully:', data)
     } catch (error: any) {
@@ -311,7 +454,6 @@ export default function HomePage() {
         question_number: data.question_number,
         total_questions: data.total_questions,
         status: data.status,
-        review_options: data.review_options,
         responses: updatedResponses,
       })
 
@@ -413,6 +555,11 @@ export default function HomePage() {
   const getSurveyPaneWidth = () => {
     if (!isSubmitted) return 'w-full'
 
+    if (showReviewPane) {
+      // 4-pane mode
+      return activePaneIn4PaneMode === 'form' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
+    }
+
     if (showSurveyUI) {
       // 3-pane mode
       return activePaneIn3PaneMode === 'form' ? 'w-[90%]' : 'w-[5%] min-w-[60px]'
@@ -424,6 +571,11 @@ export default function HomePage() {
   }
 
   const getSummaryPaneWidth = () => {
+    if (showReviewPane) {
+      // 4-pane mode
+      return activePaneIn4PaneMode === 'summary' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
+    }
+
     if (showSurveyUI) {
       // 3-pane mode
       return activePaneIn3PaneMode === 'summary' ? 'w-[90%]' : 'w-[5%] min-w-[60px]'
@@ -436,7 +588,19 @@ export default function HomePage() {
 
   const getSurveyUIPaneWidth = () => {
     if (!showSurveyUI) return 'w-0'
+
+    if (showReviewPane) {
+      // 4-pane mode
+      return activePaneIn4PaneMode === 'survey' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
+    }
+
+    // 3-pane mode
     return activePaneIn3PaneMode === 'survey' ? 'w-[90%]' : 'w-[5%] min-w-[60px]'
+  }
+
+  const getReviewPaneWidth = () => {
+    if (!showReviewPane) return 'w-0'
+    return activePaneIn4PaneMode === 'review' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
   }
 
   return (
@@ -445,14 +609,16 @@ export default function HomePage() {
       <div
         ref={formContainerRef}
         onClick={
-          showSurveyUI && activePaneIn3PaneMode !== 'form'
+          showReviewPane && activePaneIn4PaneMode !== 'form'
+            ? toggleSurveyPane
+            : showSurveyUI && activePaneIn3PaneMode !== 'form'
             ? toggleSurveyPane
             : !showSurveyUI && isSubmitted && !isSurveyPaneExpanded
             ? toggleSurveyPane
             : undefined
         }
         className={`transition-all duration-500 ${getSurveyPaneWidth()} ${
-          showSurveyUI && activePaneIn3PaneMode !== 'form'
+          (showReviewPane && activePaneIn4PaneMode !== 'form') || (showSurveyUI && activePaneIn3PaneMode !== 'form')
             ? 'bg-gray-50 cursor-pointer hover:shadow-lg flex items-center justify-center relative'
             : 'bg-gradient-to-br from-white to-gray-50'
         } overflow-y-auto ${
@@ -463,8 +629,8 @@ export default function HomePage() {
             : 'p-8'
         }`}
       >
-        {/* Minimized vertical text in 3-pane mode */}
-        {showSurveyUI && activePaneIn3PaneMode !== 'form' ? (
+        {/* Minimized vertical text in 3-pane or 4-pane mode */}
+        {((showSurveyUI && activePaneIn3PaneMode !== 'form') || (showReviewPane && activePaneIn4PaneMode !== 'form')) ? (
           <div className="fixed top-4 left-2 flex flex-col items-center gap-3 z-10">
             {/* Survey Sensei Logo - Artsy Design */}
             <div className="relative bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white rounded-xl p-2 shadow-xl">
@@ -613,7 +779,11 @@ export default function HomePage() {
           )}
 
           {/* Expanded View: Show Filled Form (Read-Only) */}
-          {isSubmitted && (activePaneIn3PaneMode === 'form' || (!showSurveyUI && isSurveyPaneExpanded)) && (
+          {isSubmitted && (
+            (showReviewPane && activePaneIn4PaneMode === 'form') ||
+            (!showReviewPane && showSurveyUI && activePaneIn3PaneMode === 'form') ||
+            (!showSurveyUI && isSurveyPaneExpanded)
+          ) && (
             <div className="h-full p-8">
               {/* Survey Sensei Heading */}
               <h2 className="text-3xl font-bold text-gray-900 mb-6">Survey Sensei</h2>
@@ -742,22 +912,28 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Summary Pane in 3-pane mode */}
+      {/* Summary Pane in 3-pane or 4-pane mode */}
       {showSurveyUI && mockDataSummary && formData.productData && (
         <div
           ref={summaryPaneRef}
-          onClick={activePaneIn3PaneMode !== 'summary' ? toggleSummaryPane : undefined}
+          onClick={
+            showReviewPane && activePaneIn4PaneMode !== 'summary'
+              ? toggleSummaryPane
+              : activePaneIn3PaneMode !== 'summary'
+              ? toggleSummaryPane
+              : undefined
+          }
           className={`transition-all duration-500 ${getSummaryPaneWidth()} ${
-            activePaneIn3PaneMode !== 'summary'
+            (showReviewPane && activePaneIn4PaneMode !== 'summary') || (!showReviewPane && activePaneIn3PaneMode !== 'summary')
               ? 'bg-blue-100'
               : 'bg-gradient-to-br from-blue-100 to-blue-200'
           } overflow-y-auto ${
-            activePaneIn3PaneMode !== 'summary'
+            (showReviewPane && activePaneIn4PaneMode !== 'summary') || (!showReviewPane && activePaneIn3PaneMode !== 'summary')
               ? 'cursor-pointer hover:shadow-lg flex items-center justify-center relative'
               : 'p-8'
           }`}
         >
-          {activePaneIn3PaneMode !== 'summary' ? (
+          {((showReviewPane && activePaneIn4PaneMode !== 'summary') || (!showReviewPane && activePaneIn3PaneMode !== 'summary')) ? (
             <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-20">
               <div className="transform -rotate-90 whitespace-nowrap text-xs font-semibold text-blue-900">
                 Summary
@@ -773,24 +949,30 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Survey UI Pane (Right) in 3-pane mode */}
+      {/* Survey UI Pane in 3-pane or 4-pane mode */}
       {showSurveyUI && (
         <div
           ref={surveyPaneRef}
-          onClick={activePaneIn3PaneMode !== 'survey' ? toggleSurveyUIPane : undefined}
+          onClick={
+            showReviewPane && activePaneIn4PaneMode !== 'survey'
+              ? toggleSurveyUIPane
+              : !showReviewPane && activePaneIn3PaneMode !== 'survey'
+              ? toggleSurveyUIPane
+              : undefined
+          }
           className={`transition-all duration-500 ${getSurveyUIPaneWidth()} ${
-            activePaneIn3PaneMode !== 'survey'
+            (showReviewPane && activePaneIn4PaneMode !== 'survey') || (!showReviewPane && activePaneIn3PaneMode !== 'survey')
               ? 'bg-emerald-50'
               : 'bg-gradient-to-br from-emerald-50 to-emerald-100'
           } overflow-y-auto ${
-            activePaneIn3PaneMode !== 'survey'
+            (showReviewPane && activePaneIn4PaneMode !== 'survey') || (!showReviewPane && activePaneIn3PaneMode !== 'survey')
               ? 'cursor-pointer hover:shadow-lg flex items-center justify-center relative'
               : ''
           }`}
         >
-          {activePaneIn3PaneMode !== 'survey' ? (
-            <div className="fixed top-4 flex flex-col items-center w-full z-10">
-              <div className="transform -rotate-90 origin-center whitespace-nowrap text-xs font-semibold text-emerald-900 mt-12">
+          {((showReviewPane && activePaneIn4PaneMode !== 'survey') || (!showReviewPane && activePaneIn3PaneMode !== 'survey')) ? (
+            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-20">
+              <div className="transform -rotate-90 whitespace-nowrap text-xs font-semibold text-emerald-900">
                 Survey
               </div>
             </div>
@@ -863,12 +1045,13 @@ export default function HomePage() {
                       {surveySession.question.options.map((option, idx) => (
                         <button
                           key={idx}
-                          onClick={() => toggleOption(option)}
+                          onClick={() => !isLoadingSurvey && toggleOption(option)}
+                          disabled={isLoadingSurvey}
                           className={`w-full text-left p-3 border-2 rounded-lg transition-all text-gray-900 font-medium ${
                             selectedOptions.includes(option)
                               ? 'border-primary-600 bg-primary-100'
                               : 'border-gray-300 hover:border-primary-500 hover:bg-green-200'
-                          }`}
+                          } ${isLoadingSurvey ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           <div className="flex items-center gap-2">
                             {surveySession.question?.allow_multiple && (
@@ -986,30 +1169,150 @@ export default function HomePage() {
                 )}
               </div>
 
-              {/* Review Options (appears after completing questions) */}
-              {surveySession && surveySession.status === 'completed' && surveySession.review_options && (
-                <div className="mt-6 space-y-4">
-                  <h3 className="text-xl font-bold text-gray-900">
-                    Select Your Review
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    Based on your responses, here are 3 review options. Select the one that best matches your experience:
+              {/* Survey Completed - Generating Reviews */}
+              {surveySession && surveySession.status === 'survey_completed' && isGeneratingReviews && (
+                <div className="mt-6 p-6 bg-blue-50 border-2 border-blue-500 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <svg className="animate-spin h-8 w-8 text-blue-600" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <div>
+                      <h3 className="text-xl font-bold text-blue-900">Survey Complete!</h3>
+                      <p className="text-sm text-blue-700 mt-1">
+                        Generating review options based on your responses...
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Review Pane (4th Pane - Rightmost) */}
+      {showReviewPane && (
+        <div
+          ref={reviewPaneRef}
+          onClick={activePaneIn4PaneMode !== 'review' ? () => {
+            setActivePaneIn4PaneMode('review')
+            setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+          } : undefined}
+          className={`transition-all duration-500 ${getReviewPaneWidth()} ${
+            activePaneIn4PaneMode !== 'review'
+              ? 'bg-purple-50'
+              : 'bg-gradient-to-br from-purple-50 to-purple-100'
+          } overflow-y-auto ${
+            activePaneIn4PaneMode !== 'review'
+              ? 'cursor-pointer hover:shadow-lg flex items-center justify-center relative'
+              : 'p-8'
+          }`}
+        >
+          {activePaneIn4PaneMode !== 'review' ? (
+            <div className="fixed top-4 flex flex-col items-center w-full z-10">
+              <div className="transform -rotate-90 origin-center whitespace-nowrap text-xs font-semibold text-purple-900 mt-12">
+                Review
+              </div>
+            </div>
+          ) : (
+            <div className="max-w-4xl mx-auto">
+              <h2 className="text-3xl font-bold text-gray-900 mb-6">
+                Review Options
+              </h2>
+
+              {/* Sentiment Band Indicator */}
+              {sentimentBand && (
+                <div className={`mb-6 p-4 rounded-lg border-2 ${
+                  sentimentBand === 'good' ? 'bg-green-50 border-green-500' :
+                  sentimentBand === 'okay' ? 'bg-yellow-50 border-yellow-500' :
+                  'bg-red-50 border-red-500'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900">Survey Sentiment:</span>
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                      sentimentBand === 'good' ? 'bg-green-200 text-green-900' :
+                      sentimentBand === 'okay' ? 'bg-yellow-200 text-yellow-900' :
+                      'bg-red-200 text-red-900'
+                    }`}>
+                      {sentimentBand.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Loading State */}
+              {isGeneratingReviews && (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <svg className="animate-spin h-12 w-12 text-purple-600 mx-auto mb-4" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <p className="text-gray-600">Generating intelligent review options...</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Error State */}
+              {surveyError && !isGeneratingReviews && (
+                <div className="p-6 bg-red-50 border-l-4 border-red-500 rounded-lg mb-6">
+                  <p className="text-sm text-red-700 mb-2">
+                    <strong>Error:</strong> {surveyError}
                   </p>
-                  <div className="space-y-3">
-                    {surveySession.review_options.map((review, idx) => (
+                  <button
+                    onClick={() => surveySession && generateReviews(surveySession.session_id)}
+                    className="text-sm text-red-600 underline hover:text-red-800"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {/* Review Options */}
+              {!isGeneratingReviews && reviewOptions.length > 0 && (
+                <>
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-sm text-gray-600">
+                      {isReviewSubmitted ? 'Review submitted successfully!' : 'Select the review that best matches your experience:'}
+                    </p>
+                    <button
+                      onClick={regenerateReviews}
+                      disabled={isGeneratingReviews || isReviewSubmitted}
+                      className="text-sm bg-purple-100 hover:bg-purple-200 text-purple-800 px-4 py-2 rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Refresh Reviews
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    {reviewOptions.map((review, idx) => (
                       <div
                         key={idx}
-                        className="border-2 border-gray-300 rounded-lg p-4 hover:border-primary-500 transition-all cursor-pointer bg-white"
-                        onClick={() => submitReview(idx)}
+                        onClick={() => !isReviewSubmitted && setSelectedReviewIndex(idx)}
+                        className={`border-2 rounded-lg p-5 transition-all ${
+                          isReviewSubmitted ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'
+                        } ${
+                          selectedReviewIndex === idx
+                            ? 'border-purple-600 bg-purple-50 shadow-lg'
+                            : isReviewSubmitted
+                            ? 'border-gray-300 bg-gray-50'
+                            : 'border-gray-300 hover:border-purple-400 hover:shadow-md bg-white'
+                        }`}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-gray-900">Option {idx + 1}</span>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-gray-900 text-lg">Option {idx + 1}</span>
                             <div className="flex items-center">
                               {[...Array(5)].map((_, i) => (
                                 <svg
                                   key={i}
-                                  className={`w-4 h-4 ${i < review.rating ? 'text-yellow-400' : 'text-gray-300'}`}
+                                  className={`w-5 h-5 ${i < review.review_stars ? 'text-yellow-400' : 'text-gray-300'}`}
                                   fill="currentColor"
                                   viewBox="0 0 20 20"
                                 >
@@ -1018,29 +1321,63 @@ export default function HomePage() {
                               ))}
                             </div>
                           </div>
-                          <span className={`text-xs px-2 py-1 rounded ${
-                            review.sentiment === 'positive' ? 'bg-green-100 text-green-800' :
-                            review.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {review.sentiment}
-                          </span>
+                          {selectedReviewIndex === idx && (
+                            <div className="bg-purple-600 text-white px-3 py-1 rounded-full text-xs font-medium">
+                              Selected
+                            </div>
+                          )}
                         </div>
-                        <p className="text-gray-700 text-sm leading-relaxed">
+
+                        <p className="text-gray-700 leading-relaxed mb-3">
                           {review.review_text}
                         </p>
-                        <div className="mt-2 text-xs text-gray-500">
-                          Tone: {review.tone}
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                            Tone: {review.tone}
+                          </span>
+                          {review.highlights && review.highlights.length > 0 && (
+                            <>
+                              {review.highlights.map((highlight, hidx) => (
+                                <span key={hidx} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                                  {highlight}
+                                </span>
+                              ))}
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
-                </div>
+
+                  {/* Submit Button */}
+                  {!isReviewSubmitted && (
+                    <div className="mt-8">
+                      <button
+                        onClick={submitReview}
+                        disabled={selectedReviewIndex === null || isLoadingSurvey}
+                        className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-4 px-6 rounded-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoadingSurvey ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Submitting Review...
+                          </span>
+                        ) : (
+                          'Submit Selected Review'
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Review Submitted Confirmation */}
-              {surveySession && surveySession.status === 'review_submitted' && (
-                <div className="mt-6 p-6 bg-green-50 border-2 border-green-500 rounded-lg">
+              {surveySession && surveySession.status === 'completed' && (
+                <div className="p-6 bg-green-50 border-2 border-green-500 rounded-lg">
                   <div className="flex items-center gap-3">
                     <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1054,8 +1391,6 @@ export default function HomePage() {
                   </div>
                 </div>
               )}
-            </div>
-            </div>
             </div>
           )}
         </div>

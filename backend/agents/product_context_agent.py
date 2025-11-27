@@ -53,7 +53,6 @@ class ProductContextAgent:
             model=settings.openai_model,
             temperature=settings.openai_temperature,
             api_key=settings.openai_api_key,
-            model_kwargs={"response_format": {"type": "json_object"}},  # Force JSON output
         )
         self.parser = PydanticOutputParser(pydantic_object=ProductContext)
 
@@ -113,9 +112,7 @@ Focus on:
 - Pros and cons
 - Common use cases
 
-Be specific and actionable. Extract real insights from the reviews.
-
-IMPORTANT: You must respond with valid JSON matching the exact schema provided in the format instructions.""",
+Be specific and actionable. Extract real insights from the reviews.""",
                 ),
                 (
                     "human",
@@ -267,9 +264,7 @@ Based on these similar products, infer the likely concerns, features, pros/cons,
                     "system",
                     """You are a product analysis expert. You're analyzing a product with no reviews.
 Use the product description to generate plausible concerns, features, and insights.
-Be realistic but acknowledge this is generic context without user feedback.
-
-IMPORTANT: You must respond with valid JSON matching the exact schema provided in the format instructions.""",
+Be realistic but acknowledge this is generic context without user feedback.""",
                 ),
                 (
                     "human",
