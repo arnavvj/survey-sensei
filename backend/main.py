@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional, Union
 from config import settings
 from agents import survey_agent
+from agents.review_gen_agent import review_gen_agent
 from database import db
 import uvicorn
 
@@ -67,14 +68,28 @@ class EditAnswerRequest(BaseModel):
 
 
 class SubmitAnswerResponse(BaseModel):
-    """Response with next question or review options"""
+    """Response with next question or survey completion status"""
 
     session_id: str
-    status: str  # 'continue' or 'completed'
+    status: str  # 'continue' or 'survey_completed'
     question: Optional[Dict[str, Any]] = None
     question_number: Optional[int] = None
     total_questions: Optional[int] = None
-    review_options: Optional[List[Dict[str, Any]]] = None
+
+
+class GenerateReviewsRequest(BaseModel):
+    """Request to generate review options"""
+
+    session_id: str
+
+
+class GenerateReviewsResponse(BaseModel):
+    """Response with generated review options"""
+
+    session_id: str
+    status: str
+    review_options: List[Dict[str, Any]]
+    sentiment_band: str
 
 
 class SubmitReviewRequest(BaseModel):
@@ -171,13 +186,13 @@ async def submit_answer(request: SubmitAnswerRequest):
     1. Records the user's answer
     2. Updates conversation state
     3. Determines if more questions needed or survey complete
-    4. Returns next question OR review options
+    4. Returns next question OR survey_completed status (frontend then calls generate_reviews)
 
     Args:
         request: Session ID and user's answer
 
     Returns:
-        Next question or review options if survey complete
+        Next question or survey_completed status
     """
     try:
         result = survey_agent.submit_answer(
@@ -185,11 +200,10 @@ async def submit_answer(request: SubmitAnswerRequest):
             answer=request.answer,
         )
 
-        if result.get("status") == "completed":
+        if result.get("status") == "survey_completed":
             return SubmitAnswerResponse(
                 session_id=result["session_id"],
-                status="completed",
-                review_options=result["review_options"],
+                status="survey_completed",
             )
         else:
             return SubmitAnswerResponse(
@@ -253,6 +267,105 @@ async def edit_answer(request: EditAnswerRequest):
         raise HTTPException(status_code=500, detail=f"Failed to edit answer: {str(e)}")
 
 
+@app.post("/api/reviews/generate", response_model=GenerateReviewsResponse)
+async def generate_reviews(request: GenerateReviewsRequest):
+    """
+    Generate review options using Agent 4
+
+    This endpoint:
+    1. Retrieves survey responses from completed survey
+    2. Invokes Agent 4 (REVIEW_GEN_AGENT) for intelligent review generation
+    3. Returns 2-3 review options with sentiment-based star ratings
+
+    Args:
+        request: Session ID
+
+    Returns:
+        Review options with star ratings based on survey sentiment
+    """
+    try:
+        # Get session data
+        session = db.get_survey_session(request.session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session_context = session.get("session_context", {})
+        current_state = session_context.get("current_state", {})
+
+        # Get product info
+        product = db.get_product_by_id(current_state.get("item_id"))
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # Get user's previous reviews for writing style analysis
+        user_id = current_state.get("user_id")
+        user_reviews = db.get_user_reviews(user_id, limit=10) if user_id else []
+
+        # Invoke Agent 4 to generate reviews with writing style analysis
+        review_options = review_gen_agent.generate_reviews(
+            survey_responses=current_state.get("answers", []),
+            product_context=current_state.get("product_context", {}),
+            customer_context=current_state.get("customer_context", {}),
+            product_title=product.get("title", "this product"),
+            user_reviews=user_reviews,
+        )
+
+        # Store generated reviews in session for later submission
+        db.update_survey_session(
+            session_id=request.session_id,
+            conversation_history=current_state.get("conversation_history", []),
+            state="reviews_generated",
+            metadata={
+                **session_context,
+                "current_state": {
+                    **current_state,
+                    "generated_reviews": [r.dict() for r in review_options.reviews],
+                },
+            },
+        )
+
+        return GenerateReviewsResponse(
+            session_id=request.session_id,
+            status="reviews_generated",
+            review_options=[r.dict() for r in review_options.reviews],
+            sentiment_band=review_options.sentiment_band,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"ERROR in generate_reviews: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to generate reviews: {str(e)}")
+
+
+@app.post("/api/reviews/regenerate", response_model=GenerateReviewsResponse)
+async def regenerate_reviews(request: GenerateReviewsRequest):
+    """
+    Regenerate review options (Refresh button functionality)
+
+    This endpoint re-invokes Agent 4 to generate a fresh set of review options
+    with the same sentiment band but different variations.
+
+    Args:
+        request: Session ID
+
+    Returns:
+        New set of review options
+    """
+    try:
+        # Reuse the same logic as generate_reviews
+        # Agent 4 will naturally generate different variations each time
+        return await generate_reviews(request)
+
+    except Exception as e:
+        import traceback
+        print(f"ERROR in regenerate_reviews: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to regenerate reviews: {str(e)}")
+
+
 @app.post("/api/survey/review", response_model=SubmitReviewResponse)
 async def submit_review(request: SubmitReviewRequest):
     """
@@ -270,17 +383,56 @@ async def submit_review(request: SubmitReviewRequest):
         Confirmation with saved review details
     """
     try:
-        result = survey_agent.submit_review(
+        # Get session data
+        session = db.get_survey_session(request.session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session_context = session.get("session_context", {})
+        current_state = session_context.get("current_state", {})
+
+        # Get selected review from generated options
+        generated_reviews = current_state.get("generated_reviews", [])
+        if not generated_reviews or request.selected_review_index >= len(generated_reviews):
+            raise HTTPException(status_code=400, detail="Invalid review index")
+
+        selected_review = generated_reviews[request.selected_review_index]
+
+        # Save review to database
+        review_id = db.save_generated_review(
+            user_id=current_state.get("user_id"),
+            item_id=current_state.get("item_id"),
+            review_text=selected_review.get("review_text"),
+            rating=selected_review.get("review_stars"),
+            sentiment_label=selected_review.get("tone", "neutral"),
+            metadata={
+                "session_id": request.session_id,
+                "tone": selected_review.get("tone", "neutral"),
+                "generated_by": "agent_4_review_gen",
+                "highlights": selected_review.get("highlights", []),
+            },
+        )
+
+        # Mark session as completed
+        db.update_survey_session(
             session_id=request.session_id,
-            selected_review_index=request.selected_review_index,
+            conversation_history=current_state.get("conversation_history", []),
+            state="completed",
+            metadata={
+                **session_context,
+                "review_id": review_id,
+                "completed": True,
+            },
         )
 
         return SubmitReviewResponse(
-            session_id=result["session_id"],
-            status=result["status"],
-            review=result["review"],
+            session_id=request.session_id,
+            status="review_saved",
+            review=selected_review,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         print(f"ERROR in submit_review: {str(e)}")

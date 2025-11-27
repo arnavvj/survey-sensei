@@ -1,6 +1,6 @@
 """
-Agent 3: SURVEY_AND_REVIEW_AGENT
-Stateful LangGraph agent for survey generation and review creation
+Agent 3: SURVEY_AGENT (Refactored)
+Stateful LangGraph agent for survey generation only
 
 Workflow:
 1. Invoke Agent 1 and Agent 2 in parallel to get contexts
@@ -8,10 +8,10 @@ Workflow:
 3. Present questions one by one, collect answers
 4. Generate follow-up questions based on previous answers (adaptive)
 5. Handle question navigation (back/forward with state updates)
-6. After survey completion, generate natural language review options
-7. Save selected review to database
+6. After survey completion, return control to main API (which invokes Agent 4)
 
-This is a stateful agent that maintains conversation history and adapts questions.
+Review generation is now handled by Agent 4 (REVIEW_GEN_AGENT).
+This agent focuses solely on survey orchestration.
 """
 
 from langgraph.graph import StateGraph, END
@@ -59,21 +59,7 @@ class SurveyQuestionnaire(BaseModel):
     )
 
 
-class ReviewOption(BaseModel):
-    """Natural language review option"""
-
-    review_text: str = Field(description="Complete review text")
-    rating: int = Field(description="Star rating 1-5")
-    sentiment: str = Field(description="positive, neutral, or negative")
-    tone: str = Field(description="formal, casual, enthusiastic, critical, etc.")
-
-
-class ReviewOptions(BaseModel):
-    """Collection of review options for user to choose from"""
-
-    options: List[ReviewOption] = Field(
-        description="3 different review options"
-    )
+# Review generation models removed - now handled by Agent 4 (review_gen_agent)
 
 
 class SurveyState(TypedDict):
@@ -97,12 +83,8 @@ class SurveyState(TypedDict):
     # Conversation history for LLM
     conversation_history: Annotated[Sequence[Dict[str, str]], operator.add]
 
-    # Review generation
-    generated_reviews: Optional[List[Dict[str, Any]]]
-    selected_review: Optional[Dict[str, Any]]
-
     # Control flow
-    next_action: str  # 'ask_question', 'generate_followup', 'generate_review', 'end'
+    next_action: str  # 'ask_question', 'generate_followup', 'complete_survey'
 
 
 # ============================================================================
@@ -110,8 +92,8 @@ class SurveyState(TypedDict):
 # ============================================================================
 
 
-class SurveyAndReviewAgent:
-    """Agent 3: Stateful survey generation and review agent"""
+class SurveyAgent:
+    """Agent 3: Stateful survey generation (refactored - review generation moved to Agent 4)"""
 
     def __init__(self):
         self.llm = ChatOpenAI(
@@ -129,7 +111,6 @@ class SurveyAndReviewAgent:
         workflow.add_node("fetch_contexts", self._fetch_contexts)
         workflow.add_node("generate_initial_questions", self._generate_initial_questions)
         workflow.add_node("present_question", self._present_question)
-        workflow.add_node("generate_reviews", self._generate_review_options)
 
         # Define edges
         workflow.set_entry_point("fetch_contexts")
@@ -142,11 +123,9 @@ class SurveyAndReviewAgent:
             self._route_after_question,
             {
                 "wait_for_answer": END,  # Return to user, wait for answer
-                "generate_reviews": "generate_reviews",
+                "complete_survey": END,   # Survey completed, return to API
             },
         )
-
-        workflow.add_edge("generate_reviews", END)
 
         return workflow.compile()
 
@@ -271,8 +250,8 @@ Generate {num_questions} initial survey questions. Each question should have 4-6
         Returns question for UI to display
         """
         if state["current_question_index"] >= len(state["all_questions"]):
-            # No more questions, move to review generation
-            return {"next_action": "generate_review"}
+            # No more questions, survey complete - return to API (which will invoke Agent 4)
+            return {"next_action": "complete_survey"}
 
         current_q = state["all_questions"][state["current_question_index"]]
 
@@ -413,112 +392,8 @@ Generate {num_questions} follow-up questions that build on the conversation.
             "next_action": "ask_question",
         }
 
-    def _generate_review_options(self, state: SurveyState) -> Dict[str, Any]:
-        """
-        Node 6: Generate natural language review options
-        Creates 3 review options for user to select from
-        """
-        parser = PydanticOutputParser(pydantic_object=ReviewOptions)
-
-        # Prepare survey summary
-        qa_summary = "\n".join(
-            [
-                f"Q: {ans['question']}\nA: {ans['answer']}\n"
-                for ans in state["answers"]
-            ]
-        )
-
-        # Get product info
-        session = db.get_survey_session(state["session_id"])
-        product = db.get_product_by_id(state["item_id"])
-
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """You are an expert at writing authentic product reviews.
-Based on the survey responses, generate {num_options} different natural language review options.
-
-Guidelines:
-- Reviews should sound authentic and personal
-- Reflect the user's actual survey responses
-- Vary in tone (enthusiastic, balanced, critical)
-- Vary in length (short, medium, detailed)
-- Include specific details from their answers
-- Assign appropriate star ratings (1-5) based on sentiment
-- Write like a real customer, not an AI""",
-                ),
-                (
-                    "human",
-                    """Product: {product_title}
-
-Survey Responses:
-{survey_qa}
-
-Product Context:
-{product_context}
-
-Customer Profile:
-{customer_context}
-
-Generate {num_options} authentic review options that reflect the user's survey responses.
-Create variety: one enthusiastic, one balanced, one more critical/honest.
-
-{format_instructions}""",
-                ),
-            ]
-        )
-
-        chain = prompt | self.llm | parser
-
-        review_options = chain.invoke(
-            {
-                "product_title": product.get("title", "this product"),
-                "survey_qa": qa_summary,
-                "product_context": json.dumps(state["product_context"], indent=2),
-                "customer_context": json.dumps(state["customer_context"], indent=2),
-                "num_options": settings.review_options_count,
-                "format_instructions": parser.get_format_instructions(),
-            }
-        )
-
-        return {
-            "generated_reviews": [opt.dict() for opt in review_options.options],
-            "next_action": "present_reviews",
-        }
-
-    def _save_selected_review(
-        self, state: SurveyState, selected_review: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Node 7: Save user's selected review to database
-        """
-        # Save review to database
-        review_id = db.save_generated_review(
-            user_id=state["user_id"],
-            item_id=state["item_id"],
-            review_text=selected_review["review_text"],
-            rating=selected_review["rating"],
-            sentiment_label=selected_review["sentiment"],
-            metadata={
-                "session_id": state["session_id"],
-                "tone": selected_review.get("tone", "neutral"),
-                "generated_by": "survey_agent",
-            },
-        )
-
-        # Update session as completed
-        db.update_survey_session(
-            session_id=state["session_id"],
-            conversation_history=list(state["conversation_history"]),
-            state="completed",
-            metadata={"review_id": review_id},
-        )
-
-        return {
-            "selected_review": selected_review,
-            "next_action": "end",
-        }
+    # Review generation methods removed - now handled by Agent 4 (review_gen_agent)
+    # See: backend/agents/review_gen_agent.py
 
     # ========================================================================
     # ROUTING FUNCTIONS
@@ -526,8 +401,8 @@ Create variety: one enthusiastic, one balanced, one more critical/honest.
 
     def _route_after_question(self, state: SurveyState) -> str:
         """Determine next step after presenting a question"""
-        if state["next_action"] == "generate_review":
-            return "generate_reviews"
+        if state["next_action"] == "complete_survey":
+            return "complete_survey"
         return "wait_for_answer"
 
     def _route_after_answer(self, state: SurveyState) -> str:
@@ -581,8 +456,6 @@ Create variety: one enthusiastic, one balanced, one more critical/honest.
             "answers": [],
             "total_questions_asked": 0,
             "conversation_history": [],
-            "generated_reviews": None,
-            "selected_review": None,
             "next_action": "fetch_contexts",
         }
 
@@ -625,6 +498,19 @@ Create variety: one enthusiastic, one balanced, one more critical/honest.
         session_context = session.get("session_context", {})
         current_state = session_context.get("current_state", {})
 
+        # Validate current question index to prevent race conditions
+        current_index = current_state.get("current_question_index", 0)
+        all_questions = current_state.get("all_questions", [])
+
+        if current_index >= len(all_questions):
+            # Question index is out of bounds - likely due to concurrent submissions
+            # Return the current state without processing
+            raise ValueError(
+                f"Invalid question index {current_index}. "
+                f"This may be due to submitting multiple answers rapidly. "
+                f"Please wait for the previous answer to be processed."
+            )
+
         # Process answer (returns partial update)
         state_update = self._process_answer(current_state, answer)
 
@@ -635,23 +521,18 @@ Create variety: one enthusiastic, one balanced, one more critical/honest.
         next_route = self._route_after_answer(updated_state)
 
         if next_route == "complete_survey":
-            # Generate review options (returns partial update)
-            review_update = self._generate_review_options(updated_state)
-            # Merge with current state
-            final_state = {**updated_state, **review_update}
-
-            # Save final state
+            # Survey completed - save state and return to API
+            # API will then invoke Agent 4 for review generation
             db.update_survey_session(
                 session_id=session_id,
-                conversation_history=final_state.get("conversation_history", []),
-                state="completed",
-                metadata={"current_state": final_state},
+                conversation_history=updated_state.get("conversation_history", []),
+                state="survey_completed",  # Mark as survey complete, not fully completed
+                metadata={"current_state": updated_state},
             )
 
             return {
                 "session_id": session_id,
-                "status": "completed",
-                "review_options": final_state["generated_reviews"],
+                "status": "survey_completed",  # Signal API to invoke Agent 4
             }
         elif next_route == "generate_followup":
             # Generate followup questions (returns partial update)
@@ -670,35 +551,27 @@ Create variety: one enthusiastic, one balanced, one more critical/honest.
             metadata={"current_state": updated_state},
         )
 
-        # Get next question
-        current_q = updated_state["all_questions"][updated_state["current_question_index"]]
+        # Get next question with bounds checking
+        next_index = updated_state["current_question_index"]
+        all_questions = updated_state["all_questions"]
+
+        if next_index >= len(all_questions):
+            # Should not happen, but add safeguard
+            raise ValueError(
+                f"Question index {next_index} is out of bounds. "
+                f"Total questions: {len(all_questions)}"
+            )
+
+        current_q = all_questions[next_index]
 
         return {
             "session_id": session_id,
             "question": current_q,
-            "question_number": updated_state["current_question_index"] + 1,
-            "total_questions": len(updated_state["all_questions"]),
+            "question_number": next_index + 1,
+            "total_questions": len(all_questions),
         }
 
-    def submit_review(
-        self, session_id: str, selected_review_index: int
-    ) -> Dict[str, Any]:
-        """
-        Save selected review and complete survey
-        """
-        session = db.get_survey_session(session_id)
-        session_context = session.get("session_context", {})
-        current_state = session_context.get("current_state", {})
-
-        selected_review = current_state["generated_reviews"][selected_review_index]
-
-        result = self._save_selected_review(current_state, selected_review)
-
-        return {
-            "session_id": session_id,
-            "status": "review_saved",
-            "review": selected_review,
-        }
+    # submit_review removed - review submission is now handled by Agent 4 via API endpoint
 
     def edit_answer(
         self, session_id: str, question_number: int, new_answer: str
@@ -787,4 +660,4 @@ Create variety: one enthusiastic, one balanced, one more critical/honest.
 
 
 # Global agent instance
-survey_agent = SurveyAndReviewAgent()
+survey_agent = SurveyAgent()

@@ -348,9 +348,10 @@ class SupabaseDB:
         sentiment_label: str,
         metadata: Dict[str, Any],
     ) -> str:
-        """Save generated review to database"""
+        """Save generated review to database with embeddings"""
         import uuid
         from datetime import datetime
+        from utils.embeddings import embedding_service
 
         # Create a transaction for this review
         transaction_data = {
@@ -369,7 +370,10 @@ class SupabaseDB:
         if not transaction_id:
             raise Exception("Failed to create transaction for review")
 
-        # Insert review with correct field names from schema
+        # Generate embedding for the review text
+        review_embedding = embedding_service.generate_embedding(review_text)
+
+        # Insert review with embeddings and correct field names from schema
         response = (
             self.client.table("reviews")
             .insert(
@@ -381,6 +385,7 @@ class SupabaseDB:
                     "review_stars": rating,  # Correct field name
                     "manual_or_agent_generated": "agent",
                     "review_title": metadata.get("tone", "Generated Review"),
+                    "embeddings": review_embedding,  # Store the generated embedding
                 }
             )
             .execute()

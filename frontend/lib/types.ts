@@ -148,14 +148,20 @@ export interface SurveySession {
   question?: SurveyQuestion
   question_number: number
   total_questions: number
-  status?: 'continue' | 'completed' | 'review_submitted'
-  review_options?: ReviewOption[]
+  status?: 'continue' | 'survey_completed' | 'reviews_generated' | 'completed'
   responses: SurveyResponse[]
 }
 
 export interface ReviewOption {
   review_text: string
-  rating: number
-  sentiment: string
+  review_stars: number
   tone: string
+  highlights: string[]
+}
+
+export interface ReviewsResponse {
+  session_id: string
+  status: string
+  review_options: ReviewOption[]
+  sentiment_band: string
 }
