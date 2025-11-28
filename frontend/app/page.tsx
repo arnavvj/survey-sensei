@@ -746,7 +746,6 @@ export default function HomePage() {
           </div>
         ) : (
           <div className={`${isSubmitted && !isSurveyPaneExpanded && !showSurveyUI ? 'max-w-[100px]' : 'max-w-2xl'} mx-auto`}>
-            {!isSubmitted && (
             <>
               <header className="mb-8 flex items-center gap-4">
                 {/* Survey Sensei Logo */}
@@ -858,30 +857,31 @@ export default function HomePage() {
                 )}
               </div>
             </>
-          )}
+          </div>
+        )}
 
-          {/* Minimized Form View (2-pane mode only) */}
-          {isSubmitted && !isSurveyPaneExpanded && !showSurveyUI && !showReviewPane && (
-            <div className="h-full relative">
-              {/* Survey Sensei Logo - Vertically Centered at x=0 */}
-              <div className="fixed top-1/2 left-0 transform -translate-y-1/2 z-20 pl-2">
-                <div className="relative bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white rounded-xl p-2 shadow-xl">
-                  <div className="absolute inset-0 bg-white opacity-10 rounded-xl"></div>
-                  <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SURVEY</div>
-                  <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SENSEI</div>
-                </div>
-              </div>
-
-              {/* Form Title - Fixed slightly below top to avoid browser chrome */}
-              <div className="fixed top-16 left-0 z-20 pl-2">
-                <div className="transform -rotate-90 origin-left whitespace-nowrap text-xs font-semibold text-gray-700 ml-3">
-                  Form
-                </div>
+        {/* Minimized Form View (2-pane mode only) - Moved outside */}
+        {isSubmitted && !isSurveyPaneExpanded && !showSurveyUI && !showReviewPane && (
+          <div className="h-full relative">
+            {/* Survey Sensei Logo - Vertically Centered at x=0 */}
+            <div className="fixed top-1/2 left-0 transform -translate-y-1/2 z-20 pl-2">
+              <div className="relative bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white rounded-xl p-2 shadow-xl">
+                <div className="absolute inset-0 bg-white opacity-10 rounded-xl"></div>
+                <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SURVEY</div>
+                <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SENSEI</div>
               </div>
             </div>
-          )}
 
-          {/* Expanded View: Show Filled Form (Read-Only) - Always visible after form submission */}
+            {/* Form Title - Fixed slightly below top to avoid browser chrome */}
+            <div className="fixed top-16 left-0 z-20 pl-2">
+              <div className="transform -rotate-90 origin-left whitespace-nowrap text-xs font-semibold text-gray-700 ml-3">
+                Form
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Expanded View: Show Filled Form (Read-Only) - Always visible after form submission */}
           {(() => {
             const shouldShowFrozenForm = isSubmitted && (
               (showReviewPane && activePaneIn4PaneMode === 'form') ||
@@ -988,8 +988,6 @@ export default function HomePage() {
               </div>
             </div>
           )}
-          </div>
-        )}
       </div>
 
       {/* Simulation Summary Pane (Center/Right) */}
