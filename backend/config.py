@@ -33,8 +33,10 @@ class Settings(BaseSettings):
 
     # Survey Configuration
     initial_questions_count: int = 3
-    max_survey_questions: int = 10
-    min_survey_questions: int = 5
+    min_answered_questions: int = 10  # Minimum answered questions (excluding skips)
+    max_answered_questions: int = 15  # Maximum answered questions (excluding skips)
+    min_survey_questions: int = 5  # Deprecated - kept for backwards compatibility
+    max_survey_questions: int = 20  # Total questions that can be asked (including follow-ups)
     review_options_count: int = 3  # Number of natural language review options to generate
 
     # Vector Search Configuration

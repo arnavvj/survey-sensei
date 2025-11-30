@@ -41,6 +41,7 @@ class SurveyState(TypedDict):
     current_question_index: int
     answers: List[Dict[str, Any]]
     total_questions_asked: int
+    answered_questions_count: int  # Count of answered questions (excluding skips)
     skipped_questions: List[int]
     consecutive_skips: int
     asked_question_texts: List[str]
@@ -252,27 +253,43 @@ Generate {num_questions} initial survey questions. Each question should have 4-6
 
         consecutive_skips = 0
         next_index = state["current_question_index"] + 1
+        # Increment answered questions count (excluding skips)
+        answered_count = state.get("answered_questions_count", 0) + 1
 
         return {
             "answers": updated_answers,
             "current_question_index": next_index,
+            "answered_questions_count": answered_count,
             "consecutive_skips": consecutive_skips,
             "conversation_history": conversation_update,
         }
 
     def _generate_followup_questions(self, state: SurveyState) -> Dict[str, Any]:
-        """Generate adaptive follow-up questions"""
+        """Generate adaptive follow-up questions with skip context"""
         if state["total_questions_asked"] >= settings.max_survey_questions:
             return {"next_action": "complete_survey"}
 
         parser = PydanticOutputParser(pydantic_object=SurveyQuestionnaire)
 
+        # Build answers summary including answered questions only
         answers_summary = "\n".join(
             [
                 f"Q{i+1}: {ans['question']}\nA: {ans['answer']}"
                 for i, ans in enumerate(state["answers"])
             ]
         )
+
+        # Build skipped questions context
+        skipped_questions = state.get("skipped_questions", [])
+        skipped_context = ""
+        if skipped_questions:
+            skipped_q_texts = []
+            all_qs = state.get("all_questions", [])
+            for idx in skipped_questions:
+                if idx < len(all_qs):
+                    skipped_q_texts.append(f"- {all_qs[idx]['question_text']}")
+            if skipped_q_texts:
+                skipped_context = "\n\nSkipped Questions (user found these irrelevant):\n" + "\n".join(skipped_q_texts)
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -312,12 +329,15 @@ Previous Q&A:
 
 Already Asked Questions (DO NOT REPEAT):
 {asked_questions}
+{skipped_context}
 
 Skipped Questions Count: {skipped_count}
 Consecutive Skips: {consecutive_skips}
 
 Generate {num_questions} follow-up questions that build on the conversation.
-Pay special attention to avoid repetition and make questions more relevant if user has been skipping.
+CRITICAL: If user has been skipping questions, AVOID topics similar to skipped questions.
+Focus on topics the user HAS engaged with through their answers.
+Make questions more specific, relevant, and actionable based on their actual responses.
 
 {format_instructions}""",
                 ),
@@ -338,6 +358,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
                 "customer_context": json.dumps(state["customer_context"], indent=2),
                 "previous_qa": answers_summary,
                 "asked_questions": asked_questions_list,
+                "skipped_context": skipped_context,
                 "skipped_count": len(state.get("skipped_questions", [])),
                 "consecutive_skips": state.get("consecutive_skips", 0),
                 "num_questions": num_followup,
@@ -366,17 +387,34 @@ Pay special attention to avoid repetition and make questions more relevant if us
         return "wait_for_answer"
 
     def _route_after_answer(self, state: SurveyState) -> str:
+        """
+        Route logic based on answered questions count (excluding skips).
+        Survey completes when 10-15 answered questions are reached.
+        """
         total_asked = state["total_questions_asked"]
+        answered_count = state.get("answered_questions_count", 0)
         total_available = len(state["all_questions"])
 
-        if total_asked >= settings.max_survey_questions:
+        # Complete if we've reached max answered questions (10-15 range)
+        if answered_count >= settings.max_answered_questions:
             return "complete_survey"
 
-        if total_asked >= settings.min_survey_questions:
-            if total_asked % 3 == 0 and total_asked < settings.max_survey_questions:
-                return "generate_followup"
-            elif state["current_question_index"] >= total_available:
+        # Generate follow-ups if we've reached min answered questions and need more questions
+        if answered_count >= settings.min_answered_questions:
+            # Survey is now comprehensive - complete it
+            return "complete_survey"
+
+        # Safety check - don't exceed total question limit
+        if total_asked >= settings.max_survey_questions:
+            if answered_count >= settings.min_answered_questions:
                 return "complete_survey"
+            else:
+                # Need more answered questions - generate follow-ups
+                return "generate_followup"
+
+        # Generate follow-ups every few questions or when running out of questions
+        if answered_count > 0 and answered_count % 3 == 0:
+            return "generate_followup"
 
         if state["current_question_index"] < total_available:
             return "ask_next"
@@ -401,6 +439,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
             "current_question_index": 0,
             "answers": [],
             "total_questions_asked": 0,
+            "answered_questions_count": 0,
             "skipped_questions": [],
             "consecutive_skips": 0,
             "asked_question_texts": [],
@@ -424,6 +463,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
             "question": current_q,
             "question_number": result["current_question_index"] + 1,
             "total_questions": len(result["all_questions"]),
+            "answered_questions_count": result.get("answered_questions_count", 0),
         }
 
     def submit_answer(self, session_id: str, answer: str) -> Dict[str, Any]:
@@ -461,6 +501,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
             return {
                 "session_id": session_id,
                 "status": "survey_completed",
+                "answered_questions_count": updated_state.get("answered_questions_count", 0),
             }
         elif next_route == "generate_followup":
             followup_update = self._generate_followup_questions(updated_state)
@@ -492,6 +533,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
             "question": current_q,
             "question_number": next_index + 1,
             "total_questions": len(all_questions),
+            "answered_questions_count": updated_state.get("answered_questions_count", 0),
         }
 
     def skip_question(self, session_id: str) -> Dict[str, Any]:
@@ -515,15 +557,16 @@ Pay special attention to avoid repetition and make questions more relevant if us
 
         total_skipped = len(current_state.get("skipped_questions", []))
         total_answered = len(current_state.get("answers", []))
+        answered_count = current_state.get("answered_questions_count", 0)
         all_questions = current_state.get("all_questions", [])
         current_index = current_state.get("current_question_index", 0)
         remaining_questions = len(all_questions) - current_index
 
-        MIN_ANSWERED_QUESTIONS = 3
-        if total_answered < MIN_ANSWERED_QUESTIONS and remaining_questions <= 1:
+        # Check if skipping would prevent reaching minimum answered questions
+        if answered_count < settings.min_answered_questions and remaining_questions <= 1:
             raise ValueError(
-                f"You must answer at least {MIN_ANSWERED_QUESTIONS} questions to complete the survey. "
-                f"You've answered {total_answered} so far."
+                f"You must answer at least {settings.min_answered_questions} questions to complete the survey. "
+                f"You've answered {answered_count} so far. Please answer this question."
             )
 
         state_update = self._process_answer(current_state, answer=None, is_skipped=True)
@@ -532,7 +575,8 @@ Pay special attention to avoid repetition and make questions more relevant if us
         next_route = self._route_after_answer(updated_state)
 
         if next_route == "complete_survey":
-            if total_answered + 1 < MIN_ANSWERED_QUESTIONS:
+            # Ensure we have minimum answered questions before completing
+            if updated_state.get("answered_questions_count", 0) < settings.min_answered_questions:
                 next_route = "generate_followup"
 
         if next_route == "complete_survey":
@@ -546,6 +590,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
             return {
                 "session_id": session_id,
                 "status": "survey_completed",
+                "answered_questions_count": updated_state.get("answered_questions_count", 0),
             }
         elif next_route == "generate_followup":
             followup_update = self._generate_followup_questions(updated_state)
@@ -574,8 +619,33 @@ Pay special attention to avoid repetition and make questions more relevant if us
             "question": current_q,
             "question_number": next_index + 1,
             "total_questions": len(all_questions),
+            "answered_questions_count": updated_state.get("answered_questions_count", 0),
             "skipped_count": len(updated_state.get("skipped_questions", [])),
             "consecutive_skips": updated_state.get("consecutive_skips", 0),
+        }
+
+    def get_question_for_edit(self, session_id: str, question_number: int) -> Dict[str, Any]:
+        """Get the original question for editing (works for both answered and skipped questions)"""
+        session = db.get_survey_session(session_id)
+        if not session:
+            raise ValueError(f"Session not found: {session_id}")
+
+        session_context = session.get("session_context", {})
+        current_state = session_context.get("current_state", {})
+
+        question_index = question_number - 1
+        all_questions = current_state.get("all_questions", [])
+
+        if question_index < 0 or question_index >= len(all_questions):
+            raise ValueError(f"Invalid question number: {question_number}")
+
+        original_question = all_questions[question_index]
+
+        return {
+            "session_id": session_id,
+            "question": original_question,
+            "question_number": question_number,
+            "is_edit_mode": True,
         }
 
     def edit_answer(self, session_id: str, question_number: int, new_answer: str) -> Dict[str, Any]:
@@ -588,8 +658,10 @@ Pay special attention to avoid repetition and make questions more relevant if us
         current_state = session_context.get("current_state", {})
 
         question_index = question_number - 1
+        all_questions = current_state.get("all_questions", [])
 
-        if question_index < 0 or question_index >= len(current_state.get("answers", [])):
+        # Allow editing both answered and skipped questions
+        if question_index < 0 or question_index >= len(all_questions):
             raise ValueError(f"Invalid question number: {question_number}")
 
         branched_answers = current_state["answers"][:question_index]
@@ -610,12 +682,22 @@ Pay special attention to avoid repetition and make questions more relevant if us
                 {"role": "user", "content": ans["answer"]},
             ])
 
+        # Recalculate answered_questions_count (excluding skipped questions)
+        skipped_set = set(current_state.get("skipped_questions", []))
+        # Update skipped set - remove skips from branched portion
+        skipped_set = {idx for idx in skipped_set if idx < question_index}
+        # Count only answered (non-skipped) questions in branched_answers
+        answered_count = sum(1 for ans in branched_answers if ans["question_index"] not in skipped_set)
+
         branched_state = {
             **current_state,
             "answers": branched_answers,
             "conversation_history": branched_conversation,
             "current_question_index": question_index + 1,
             "total_questions_asked": len(branched_answers),
+            "answered_questions_count": answered_count,
+            "skipped_questions": list(skipped_set),
+            "consecutive_skips": 0,  # Reset consecutive skips after edit
             "generated_reviews": None,
         }
 
@@ -630,6 +712,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
             return {
                 "session_id": session_id,
                 "status": "completed",
+                "answered_questions_count": branched_state.get("answered_questions_count", 0),
                 "message": "Reached end of survey after editing"
             }
 
@@ -641,6 +724,7 @@ Pay special attention to avoid repetition and make questions more relevant if us
             "question": current_q,
             "question_number": branched_state["current_question_index"] + 1,
             "total_questions": len(branched_state["all_questions"]),
+            "answered_questions_count": branched_state.get("answered_questions_count", 0),
         }
 
 

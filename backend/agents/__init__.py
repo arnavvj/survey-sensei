@@ -2,7 +2,7 @@
 
 from .product_context_agent import product_context_agent, ProductContextAgent
 from .customer_context_agent import customer_context_agent, CustomerContextAgent
-from .survey_and_review_agent import survey_agent, SurveyAgent
+from .survey_agent import survey_agent, SurveyAgent
 from .review_gen_agent import review_gen_agent, ReviewGenAgent
 
 __all__ = [
