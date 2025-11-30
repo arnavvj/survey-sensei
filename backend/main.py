@@ -38,6 +38,7 @@ class StartSurveyResponse(BaseModel):
     question: Dict[str, Any]
     question_number: int
     total_questions: int
+    answered_questions_count: int
 
 
 class SubmitAnswerRequest(BaseModel):
@@ -51,12 +52,18 @@ class EditAnswerRequest(BaseModel):
     answer: str
 
 
+class GetQuestionForEditRequest(BaseModel):
+    session_id: str
+    question_number: int
+
+
 class SubmitAnswerResponse(BaseModel):
     session_id: str
     status: str
     question: Optional[Dict[str, Any]] = None
     question_number: Optional[int] = None
     total_questions: Optional[int] = None
+    answered_questions_count: Optional[int] = None
     skipped_count: Optional[int] = None
     consecutive_skips: Optional[int] = None
 
@@ -126,6 +133,7 @@ async def start_survey(request: StartSurveyRequest):
             question=result["question"],
             question_number=result["question_number"],
             total_questions=result["total_questions"],
+            answered_questions_count=result.get("answered_questions_count", 0),
         )
 
     except Exception as e:
@@ -148,6 +156,7 @@ async def submit_answer(request: SubmitAnswerRequest):
             return SubmitAnswerResponse(
                 session_id=result["session_id"],
                 status="survey_completed",
+                answered_questions_count=result.get("answered_questions_count", 0),
             )
         else:
             return SubmitAnswerResponse(
@@ -156,6 +165,7 @@ async def submit_answer(request: SubmitAnswerRequest):
                 question=result["question"],
                 question_number=result["question_number"],
                 total_questions=result["total_questions"],
+                answered_questions_count=result.get("answered_questions_count", 0),
             )
 
     except Exception as e:
@@ -175,6 +185,7 @@ async def skip_question(request: SkipQuestionRequest):
             return SubmitAnswerResponse(
                 session_id=result["session_id"],
                 status="survey_completed",
+                answered_questions_count=result.get("answered_questions_count", 0),
             )
         else:
             return SubmitAnswerResponse(
@@ -183,6 +194,7 @@ async def skip_question(request: SkipQuestionRequest):
                 question=result["question"],
                 question_number=result["question_number"],
                 total_questions=result["total_questions"],
+                answered_questions_count=result.get("answered_questions_count", 0),
                 skipped_count=result.get("skipped_count"),
                 consecutive_skips=result.get("consecutive_skips"),
             )
@@ -195,6 +207,31 @@ async def skip_question(request: SkipQuestionRequest):
         print(f"ERROR in skip_question: {str(e)}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to skip question: {str(e)}")
+
+
+@app.post("/api/survey/get-for-edit")
+async def get_question_for_edit(request: GetQuestionForEditRequest):
+    """Get original question for editing (works for both answered and skipped questions)"""
+    try:
+        print(f"GET QUESTION FOR EDIT - Session: {request.session_id}, Question: {request.question_number}")
+        result = survey_agent.get_question_for_edit(
+            session_id=request.session_id,
+            question_number=request.question_number,
+        )
+        print(f"GET QUESTION FOR EDIT - Success: {result.get('question', {}).get('question_text', 'N/A')}")
+
+        return {
+            "session_id": result["session_id"],
+            "question": result["question"],
+            "question_number": result["question_number"],
+            "is_edit_mode": result["is_edit_mode"],
+        }
+
+    except Exception as e:
+        import traceback
+        print(f"ERROR in get_question_for_edit: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to get question for edit: {str(e)}")
 
 
 @app.post("/api/survey/edit", response_model=SubmitAnswerResponse)

@@ -141,6 +141,7 @@ export interface SurveyResponse {
   question: string
   answer: string | string[]
   question_number: number
+  isSkipped?: boolean  // Track if question was skipped
 }
 
 export interface SurveySession {
@@ -148,6 +149,7 @@ export interface SurveySession {
   question?: SurveyQuestion
   question_number: number
   total_questions: number
+  answered_questions_count: number  // Count of answered questions (excluding skips)
   status?: 'continue' | 'survey_completed' | 'reviews_generated' | 'completed'
   responses: SurveyResponse[]
 }
