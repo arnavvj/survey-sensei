@@ -897,8 +897,6 @@ export default function HomePage() {
         className={`transition-all duration-500 ${getSurveyPaneWidth()} ${
           (showReviewPane && activePaneIn4PaneMode !== 'form') || (showSurveyUI && activePaneIn3PaneMode !== 'form')
             ? 'bg-gray-50 cursor-pointer hover:shadow-lg flex items-center justify-center relative'
-            : !showSurveyUI && isSubmitted && !isSurveyPaneExpanded && !showReviewPane
-            ? 'bg-gray-100'
             : 'bg-gradient-to-br from-white to-gray-50'
         } overflow-y-auto ${
           !showSurveyUI && isSubmitted && !isSurveyPaneExpanded
@@ -1039,7 +1037,7 @@ export default function HomePage() {
 
         {/* Minimized Form View (2-pane mode only) - Moved outside */}
         {isSubmitted && !isSurveyPaneExpanded && !showSurveyUI && !showReviewPane && (
-          <div className="h-full relative bg-gray-100">
+          <div className="h-full relative">
             {/* Survey Sensei Logo - Vertically Centered at x=0 */}
             <div className="fixed top-1/2 left-0 transform -translate-y-1/2 z-20 pl-2">
               <div className="relative bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white rounded-xl p-2 shadow-xl">
