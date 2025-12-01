@@ -827,6 +827,19 @@ export default function HomePage() {
 
   const canSubmit = currentStep === 7 && formData.userHasPurchasedExact !== undefined
 
+  // Auto-scroll to submit button when it appears
+  useEffect(() => {
+    if (!isSubmitted && canSubmit && formContainerRef.current) {
+      setTimeout(() => {
+        // Find the submit button container by its ID
+        const submitButtonContainer = document.getElementById('submit-button-container')
+        if (submitButtonContainer) {
+          submitButtonContainer.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }, 150)
+    }
+  }, [canSubmit, isSubmitted])
+
   // Calculate pane widths based on state
   const getSurveyPaneWidth = () => {
     if (!isSubmitted) return 'w-full'
@@ -997,7 +1010,7 @@ export default function HomePage() {
 
                 {/* Submit Button */}
                 {canSubmit && (
-                  <div className="mt-8 animate-fade-in">
+                  <div id="submit-button-container" className="mt-8 mb-8 animate-fade-in">
                     <button
                       onClick={handleSubmit}
                       disabled={isSubmitting}
