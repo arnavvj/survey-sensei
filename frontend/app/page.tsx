@@ -7,6 +7,7 @@ import { ProductUrlField } from '@/components/form/ProductUrlField'
 import { ReviewStatusField } from '@/components/form/ReviewStatusField'
 import { SentimentSpreadField } from '@/components/form/SentimentSpreadField'
 import { SimilarProductsField } from '@/components/form/SimilarProductsField'
+import { Steps } from '@/components/Steps'
 import { SubmissionSummary } from '@/components/SubmissionSummary'
 import { UserExactProductField } from '@/components/form/UserExactProductField'
 import { UserPersonaField } from '@/components/form/UserPersonaField'
@@ -846,93 +847,137 @@ export default function HomePage() {
     if (!isSubmitted) return 'w-full'
 
     if (showReviewPane) {
-      // 4-pane mode
-      return activePaneIn4PaneMode === 'form' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
+      // 4-pane mode - only show active pane
+      return activePaneIn4PaneMode === 'form' ? 'w-full' : 'w-0'
     }
 
     if (showSurveyUI) {
-      // 3-pane mode
-      return activePaneIn3PaneMode === 'form' ? 'w-[90%]' : 'w-[5%] min-w-[60px]'
+      // 3-pane mode - only show active pane
+      return activePaneIn3PaneMode === 'form' ? 'w-full' : 'w-0'
     }
 
-    // 2-pane mode (before Survey UI)
-    if (isSurveyPaneExpanded) return 'w-[95%]'
-    return 'w-[5%] min-w-[60px]'
+    // 2-pane mode (before Survey UI) - only show active pane
+    return isSurveyPaneExpanded ? 'w-full' : 'w-0'
   }
 
   const getSummaryPaneWidth = () => {
     if (showReviewPane) {
-      // 4-pane mode
-      return activePaneIn4PaneMode === 'summary' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
+      // 4-pane mode - only show active pane
+      return activePaneIn4PaneMode === 'summary' ? 'w-full' : 'w-0'
     }
 
     if (showSurveyUI) {
-      // 3-pane mode
-      return activePaneIn3PaneMode === 'summary' ? 'w-[90%]' : 'w-[5%] min-w-[60px]'
+      // 3-pane mode - only show active pane
+      return activePaneIn3PaneMode === 'summary' ? 'w-full' : 'w-0'
     }
 
-    // 2-pane mode (before Survey UI)
-    if (isSummaryPaneMinimized) return 'w-[5%] min-w-[60px]'
-    return 'w-[95%]'
+    // 2-pane mode (before Survey UI) - only show active pane
+    return isSummaryPaneMinimized ? 'w-0' : 'w-full'
   }
 
   const getSurveyUIPaneWidth = () => {
     if (!showSurveyUI) return 'w-0'
 
     if (showReviewPane) {
-      // 4-pane mode
-      return activePaneIn4PaneMode === 'survey' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
+      // 4-pane mode - only show active pane
+      return activePaneIn4PaneMode === 'survey' ? 'w-full' : 'w-0'
     }
 
-    // 3-pane mode
-    return activePaneIn3PaneMode === 'survey' ? 'w-[90%]' : 'w-[5%] min-w-[60px]'
+    // 3-pane mode - only show active pane
+    return activePaneIn3PaneMode === 'survey' ? 'w-full' : 'w-0'
   }
 
   const getReviewPaneWidth = () => {
     if (!showReviewPane) return 'w-0'
-    return activePaneIn4PaneMode === 'review' ? 'w-[88%]' : 'w-[4%] min-w-[60px]'
+    // 4-pane mode - only show active pane
+    return activePaneIn4PaneMode === 'review' ? 'w-full' : 'w-0'
+  }
+
+  // Calculate step statuses for the progress indicator
+  const getStepStatus = (step: 'form' | 'summary' | 'survey' | 'review') => {
+    if (step === 'form') {
+      return isSubmitted ? 'finish' : 'process'
+    }
+    if (step === 'summary') {
+      if (!isSubmitted) return 'wait'
+      if (showSurveyUI) return 'finish'
+      return 'process'
+    }
+    if (step === 'survey') {
+      if (!showSurveyUI) return 'wait'
+      if (showReviewPane) return 'finish'
+      return 'process'
+    }
+    if (step === 'review') {
+      if (!showReviewPane) return 'wait'
+      return 'process'
+    }
+    return 'wait'
+  }
+
+  // Navigation handlers for clicking on steps
+  const navigateToStep = (step: 'form' | 'summary' | 'survey' | 'review') => {
+    if (showReviewPane) {
+      // 4-pane mode
+      setActivePaneIn4PaneMode(step)
+    } else if (showSurveyUI) {
+      // 3-pane mode
+      if (step !== 'review') {
+        setActivePaneIn3PaneMode(step as 'form' | 'summary' | 'survey')
+      }
+    } else if (isSubmitted) {
+      // 2-pane mode
+      if (step === 'form') {
+        setIsSurveyPaneExpanded(true)
+        setIsSummaryPaneMinimized(true)
+      } else if (step === 'summary') {
+        setIsSurveyPaneExpanded(false)
+        setIsSummaryPaneMinimized(false)
+      }
+    }
   }
 
   return (
-    <main className={`min-h-screen transition-all duration-500 ${isSubmitted || showSurveyUI ? 'flex' : ''}`}>
-      {/* Survey Sensei Pane (Left) */}
-      <div
+    <main className="min-h-screen flex flex-col">
+      {/* Progress Steps */}
+      <Steps
+        steps={[
+          {
+            title: 'Form',
+            status: getStepStatus('form'),
+            onClick: isSubmitted ? () => navigateToStep('form') : undefined,
+          },
+          {
+            title: 'Summary',
+            status: getStepStatus('summary'),
+            onClick: isSubmitted ? () => navigateToStep('summary') : undefined,
+          },
+          {
+            title: 'Survey',
+            status: getStepStatus('survey'),
+            onClick: showSurveyUI ? () => navigateToStep('survey') : undefined,
+          },
+          {
+            title: 'Review',
+            status: getStepStatus('review'),
+            onClick: showReviewPane ? () => navigateToStep('review') : undefined,
+          },
+        ]}
+      />
+
+      {/* Main Content Area */}
+      <div className={`flex-1 transition-all duration-500 ${isSubmitted || showSurveyUI ? 'flex' : ''}`}>
+        {/* Survey Sensei Pane (Left) - Only render if active or not yet submitted */}
+        {(!isSubmitted ||
+          (showReviewPane && activePaneIn4PaneMode === 'form') ||
+          (showSurveyUI && activePaneIn3PaneMode === 'form') ||
+          (!showSurveyUI && isSurveyPaneExpanded)) && (
+        <div
         ref={formContainerRef}
-        onClick={
-          showReviewPane && activePaneIn4PaneMode !== 'form'
-            ? toggleSurveyPane
-            : showSurveyUI && activePaneIn3PaneMode !== 'form'
-            ? toggleSurveyPane
-            : !showSurveyUI && isSubmitted && !isSurveyPaneExpanded
-            ? toggleSurveyPane
-            : undefined
-        }
-        className={`transition-all duration-500 ${getSurveyPaneWidth()} ${
-          (showReviewPane && activePaneIn4PaneMode !== 'form') || (showSurveyUI && activePaneIn3PaneMode !== 'form')
-            ? 'bg-gray-50 cursor-pointer hover:shadow-lg flex items-center justify-center relative'
-            : 'bg-gradient-to-br from-white to-gray-50'
-        } overflow-y-auto ${
-          !showSurveyUI && isSubmitted && !isSurveyPaneExpanded
-            ? 'cursor-pointer hover:shadow-lg p-8'
-            : showSurveyUI && activePaneIn3PaneMode !== 'form'
-            ? ''
-            : 'p-8'
-        }`}
+        className={`transition-all duration-500 ${getSurveyPaneWidth()} bg-gradient-to-br from-white to-gray-50 overflow-y-auto p-8`}
       >
-        {/* Minimized vertical text in 3-pane or 4-pane mode */}
-        {((showSurveyUI && activePaneIn3PaneMode !== 'form') || (showReviewPane && activePaneIn4PaneMode !== 'form')) ? (
-          <div className="fixed top-4 left-2 flex flex-col items-center gap-3 z-10">
-            {/* Survey Sensei Logo - Artsy Design */}
-            <div className="relative bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white rounded-xl p-2 shadow-xl">
-              <div className="absolute inset-0 bg-white opacity-10 rounded-xl"></div>
-              <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SURVEY</div>
-              <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SENSEI</div>
-            </div>
-            <div className="fixed top-20 transform -rotate-90 origin-center whitespace-nowrap text-xs font-semibold text-gray-700 mt-8">
-              Form
-            </div>
-          </div>
-        ) : (!showSurveyUI && isSubmitted && !isSurveyPaneExpanded && !showReviewPane) ? null : (
+        {/* Form Content */}
+        {(!showSurveyUI && isSubmitted && !isSurveyPaneExpanded && !showReviewPane) ? null : (
           <div className={`${isSubmitted && !isSurveyPaneExpanded && !showSurveyUI ? 'max-w-[100px]' : 'max-w-2xl'} mx-auto`}>
             <>
               <header className="mb-8 flex items-center gap-4">
@@ -1048,155 +1093,21 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Minimized Form View (2-pane mode only) - Moved outside */}
-        {isSubmitted && !isSurveyPaneExpanded && !showSurveyUI && !showReviewPane && (
-          <div className="h-full relative">
-            {/* Survey Sensei Logo - Vertically Centered at x=0 */}
-            <div className="fixed top-1/2 left-0 transform -translate-y-1/2 z-20 pl-2">
-              <div className="relative bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white rounded-xl p-2 shadow-xl">
-                <div className="absolute inset-0 bg-white opacity-10 rounded-xl"></div>
-                <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SURVEY</div>
-                <div className="relative text-[9px] font-black tracking-wide leading-tight italic">SENSEI</div>
-              </div>
-            </div>
 
-            {/* Form Title - Fixed slightly below top to avoid browser chrome */}
-            <div className="fixed top-16 left-0 z-20 pl-2">
-              <div className="transform -rotate-90 origin-left whitespace-nowrap text-xs font-semibold text-gray-700 ml-3">
-                Form
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Expanded View: Show Filled Form (Read-Only) - Always visible after form submission */}
-          {(() => {
-            const shouldShowFrozenForm = isSubmitted && (
-              (showReviewPane && activePaneIn4PaneMode === 'form') ||
-              (!showReviewPane && showSurveyUI && activePaneIn3PaneMode === 'form') ||
-              (!showSurveyUI && isSurveyPaneExpanded)
-            );
-
-            // Debug logging
-            if (isSubmitted) {
-              console.log('FPE Debug:', {
-                isSubmitted,
-                showReviewPane,
-                activePaneIn4PaneMode,
-                showSurveyUI,
-                activePaneIn3PaneMode,
-                isSurveyPaneExpanded,
-                shouldShowFrozenForm,
-                isReviewSubmitted,
-              });
-            }
-
-            return shouldShowFrozenForm;
-          })() && (
-            <div className="h-full p-8 overflow-y-auto">
-              {/* Survey Sensei Heading */}
-              <h2 className="text-3xl font-bold text-gray-900 mb-6">Survey Sensei</h2>
-
-              {/* Two Column Layout: Generated + Submitted Form */}
-              <div className="grid grid-cols-2 gap-6">
-                {/* Left Column: Generated Stats */}
-                {mockDataSummary && (
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-4">Generated Data Summary</h3>
-                    <div className="space-y-4">
-                      <div className="bg-white p-5 rounded-xl shadow-md border border-indigo-200">
-                        <div className="text-3xl font-bold text-indigo-600 text-center">{mockDataSummary.products}</div>
-                        <div className="text-sm text-gray-600 text-center font-medium mt-1">Products</div>
-                      </div>
-                      <div className="bg-white p-5 rounded-xl shadow-md border border-green-200">
-                        <div className="text-3xl font-bold text-green-600 text-center">{mockDataSummary.users}</div>
-                        <div className="text-sm text-gray-600 text-center font-medium mt-1">Users</div>
-                      </div>
-                      <div className="bg-white p-5 rounded-xl shadow-md border border-blue-200">
-                        <div className="text-3xl font-bold text-blue-600 text-center">{mockDataSummary.transactions}</div>
-                        <div className="text-sm text-gray-600 text-center font-medium mt-1">Transactions</div>
-                      </div>
-                      <div className="bg-white p-5 rounded-xl shadow-md border border-purple-200">
-                        <div className="text-3xl font-bold text-purple-600 text-center">{mockDataSummary.reviews}</div>
-                        <div className="text-sm text-gray-600 text-center font-medium mt-1">Reviews</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Right Column: Submitted Form Data */}
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-4">Form Data (Read-Only)</h3>
-                  <div className="space-y-4 text-sm">
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                      <h4 className="font-semibold text-gray-900 mb-2">Field 1: Product</h4>
-                      <p className="text-gray-700">{formData.productData?.title || 'N/A'}</p>
-                      <p className="text-xs text-gray-500 mt-1">{formData.productUrl}</p>
-                    </div>
-
-                    {formData.hasReviews === 'yes' && formData.sentimentSpread && (
-                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                        <h4 className="font-semibold text-gray-900 mb-2">Sentiment Spread</h4>
-                        <div className="space-y-1">
-                          <p className="text-gray-700">Good: {formData.sentimentSpread.good}%</p>
-                          <p className="text-gray-700">Neutral: {formData.sentimentSpread.neutral}%</p>
-                          <p className="text-gray-700">Bad: {formData.sentimentSpread.bad}%</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {formData.hasReviews === 'no' && (
-                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                        <h4 className="font-semibold text-gray-900 mb-2">Similar Products Reviewed</h4>
-                        <p className="text-gray-700">{formData.hasSimilarProductsReviewed === 'yes' ? 'Yes' : 'No'}</p>
-                      </div>
-                    )}
-
-                    {formData.userPersona && (
-                      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                        <h4 className="font-semibold text-gray-900 mb-2">User Persona</h4>
-                        <div className="space-y-1">
-                          <p className="text-gray-700"><strong>Name:</strong> {formData.userPersona.name}</p>
-                          <p className="text-gray-700"><strong>Email:</strong> {formData.userPersona.email}</p>
-                          <p className="text-gray-700"><strong>Age:</strong> {formData.userPersona.age}</p>
-                          <p className="text-gray-700"><strong>Location:</strong> {formData.userPersona.location}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                      <h4 className="font-semibold text-gray-900 mb-2">Purchase History</h4>
-                      <p className="text-gray-700">Has purchased similar: {formData.userHasPurchasedSimilar === 'yes' ? 'Yes' : 'No'}</p>
-                      {formData.userHasPurchasedSimilar === 'yes' && (
-                        <p className="text-gray-700">Has purchased exact product: {formData.userHasPurchasedExact === 'yes' ? 'Yes' : 'No'}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
       </div>
+        )}
 
       {/* Simulation Summary Pane (Center/Right) */}
       {isSubmitted && !showSurveyUI && mockDataSummary && formData.productData && (
         <div
           ref={summaryPaneRef}
-          onClick={isSummaryPaneMinimized ? toggleSummaryPane : undefined}
           className={`transition-all duration-500 ${getSummaryPaneWidth()} ${
             isSummaryPaneMinimized ? 'bg-blue-100' : 'bg-gradient-to-br from-blue-100 to-blue-200'
           } overflow-y-auto ${
-            isSummaryPaneMinimized ? 'cursor-pointer hover:shadow-lg relative' : 'p-8'
+            isSummaryPaneMinimized ? 'relative' : 'p-8'
           }`}
         >
-          {isSummaryPaneMinimized ? (
-            // Minimized view - vertical text (positioned relative to this pane)
-            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-20">
-              <div className="transform -rotate-90 whitespace-nowrap text-xs font-semibold text-blue-900">
-                Summary
-              </div>
-            </div>
-          ) : (
+          {isSummaryPaneMinimized ? null : (
             // Full view with Next button
             <div>
               <SubmissionSummary
@@ -1223,30 +1134,17 @@ export default function HomePage() {
       {showSurveyUI && mockDataSummary && formData.productData && (
         <div
           ref={summaryPaneRef}
-          onClick={
-            showReviewPane && activePaneIn4PaneMode !== 'summary'
-              ? toggleSummaryPane
-              : activePaneIn3PaneMode !== 'summary'
-              ? toggleSummaryPane
-              : undefined
-          }
           className={`transition-all duration-500 ${getSummaryPaneWidth()} ${
             (showReviewPane && activePaneIn4PaneMode !== 'summary') || (!showReviewPane && activePaneIn3PaneMode !== 'summary')
               ? 'bg-blue-100'
               : 'bg-gradient-to-br from-blue-100 to-blue-200'
           } overflow-y-auto ${
             (showReviewPane && activePaneIn4PaneMode !== 'summary') || (!showReviewPane && activePaneIn3PaneMode !== 'summary')
-              ? 'cursor-pointer hover:shadow-lg flex items-center justify-center relative'
+              ? 'flex items-center justify-center relative'
               : 'p-8'
           }`}
         >
-          {((showReviewPane && activePaneIn4PaneMode !== 'summary') || (!showReviewPane && activePaneIn3PaneMode !== 'summary')) ? (
-            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-20">
-              <div className="transform -rotate-90 whitespace-nowrap text-xs font-semibold text-blue-900">
-                Summary
-              </div>
-            </div>
-          ) : (
+          {((showReviewPane && activePaneIn4PaneMode !== 'summary') || (!showReviewPane && activePaneIn3PaneMode !== 'summary')) ? null : (
             <SubmissionSummary
               productData={formData.productData}
               mockDataSummary={mockDataSummary}
@@ -1260,30 +1158,17 @@ export default function HomePage() {
       {showSurveyUI && (
         <div
           ref={surveyPaneRef}
-          onClick={
-            showReviewPane && activePaneIn4PaneMode !== 'survey'
-              ? toggleSurveyUIPane
-              : !showReviewPane && activePaneIn3PaneMode !== 'survey'
-              ? toggleSurveyUIPane
-              : undefined
-          }
           className={`transition-all duration-500 ${getSurveyUIPaneWidth()} ${
             (showReviewPane && activePaneIn4PaneMode !== 'survey') || (!showReviewPane && activePaneIn3PaneMode !== 'survey')
               ? 'bg-emerald-50'
               : 'bg-gradient-to-br from-emerald-50 to-emerald-100'
           } overflow-y-auto ${
             (showReviewPane && activePaneIn4PaneMode !== 'survey') || (!showReviewPane && activePaneIn3PaneMode !== 'survey')
-              ? 'cursor-pointer hover:shadow-lg flex items-center justify-center relative'
+              ? 'flex items-center justify-center relative'
               : ''
           }`}
         >
-          {((showReviewPane && activePaneIn4PaneMode !== 'survey') || (!showReviewPane && activePaneIn3PaneMode !== 'survey')) ? (
-            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-20">
-              <div className="transform -rotate-90 whitespace-nowrap text-xs font-semibold text-emerald-900">
-                Survey
-              </div>
-            </div>
-          ) : (
+          {((showReviewPane && activePaneIn4PaneMode !== 'survey') || (!showReviewPane && activePaneIn3PaneMode !== 'survey')) ? null : (
             <div className="flex flex-col h-full">
             {/* Survey Questions Area (Top 65%) */}
             <div className="h-[65%] bg-gradient-to-br from-white via-emerald-50 to-white p-8 overflow-y-auto border-b-4 border-emerald-400 shadow-inner">
@@ -1735,27 +1620,17 @@ export default function HomePage() {
       {showReviewPane && (
         <div
           ref={reviewPaneRef}
-          onClick={activePaneIn4PaneMode !== 'review' ? () => {
-            setActivePaneIn4PaneMode('review')
-            setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
-          } : undefined}
           className={`transition-all duration-500 ${getReviewPaneWidth()} ${
             activePaneIn4PaneMode !== 'review'
               ? 'bg-purple-50'
               : 'bg-gradient-to-br from-purple-50 to-purple-100'
           } overflow-y-auto ${
             activePaneIn4PaneMode !== 'review'
-              ? 'cursor-pointer hover:shadow-lg flex items-center justify-center relative'
+              ? 'flex items-center justify-center relative'
               : 'p-8'
           }`}
         >
-          {activePaneIn4PaneMode !== 'review' ? (
-            <div className="fixed top-4 flex flex-col items-center w-full z-10">
-              <div className="transform -rotate-90 origin-center whitespace-nowrap text-xs font-semibold text-purple-900 mt-12">
-                Review
-              </div>
-            </div>
-          ) : (
+          {activePaneIn4PaneMode !== 'review' ? null : (
             <div className="max-w-4xl mx-auto">
               {/* Header */}
               <div className="flex items-center gap-4 mb-8">
@@ -1982,6 +1857,7 @@ export default function HomePage() {
           )}
         </div>
       )}
+      </div>
     </main>
   )
 }
