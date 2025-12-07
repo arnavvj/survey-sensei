@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // Form state types
-export type FormStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
+export type FormStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 export interface ProductData {
   url: string

@@ -12,6 +12,8 @@ import { SubmissionSummary } from '@/components/SubmissionSummary'
 import { UserExactProductField } from '@/components/form/UserExactProductField'
 import { UserPersonaField } from '@/components/form/UserPersonaField'
 import { UserPurchaseHistoryField } from '@/components/form/UserPurchaseHistoryField'
+import { UserReviewedSimilarField } from '@/components/form/UserReviewedSimilarField'
+import { UserReviewedExactField } from '@/components/form/UserReviewedExactField'
 
 export default function HomePage() {
   const [currentStep, setCurrentStep] = useState<FormStep>(1)
@@ -757,9 +759,18 @@ export default function HomePage() {
     setCurrentStep(2) // Show Field 2
   }
 
-  const handleField2Complete = (hasReviews: 'yes' | 'no') => {
-    updateFormData({ hasReviews })
-    if (hasReviews === 'yes') {
+  const handleField2Complete = (hasMainProductReviews: 'yes' | 'no') => {
+    updateFormData({ hasMainProductReviews })
+
+    // Apply Constraint 3: Cold product cannot be purchased
+    if (hasMainProductReviews === 'no') {
+      updateFormData({
+        userPurchasedExact: 'no',
+        userReviewedExact: 'no'
+      })
+    }
+
+    if (hasMainProductReviews === 'yes') {
       setCurrentStep(3) // Go to Sentiment Spread
     } else {
       setCurrentStep(4) // Go to Similar Products
@@ -771,8 +782,8 @@ export default function HomePage() {
     setCurrentStep(5)
   }
 
-  const handleField4Complete = (hasSimilarProductsReviewed: 'yes' | 'no') => {
-    updateFormData({ hasSimilarProductsReviewed })
+  const handleField4Complete = (hasSimilarProductsReviews: 'yes' | 'no') => {
+    updateFormData({ hasSimilarProductsReviews })
     setCurrentStep(5)
   }
 
@@ -781,20 +792,49 @@ export default function HomePage() {
     setCurrentStep(6)
   }
 
-  const handleField6Complete = (userHasPurchasedSimilar: 'yes' | 'no') => {
-    updateFormData({ userHasPurchasedSimilar })
-    // Only show Field 7 if user purchased similar products
-    if (userHasPurchasedSimilar === 'yes') {
-      setCurrentStep(7)
+  const handleField6Complete = (userPurchasedSimilar: 'yes' | 'no') => {
+    updateFormData({ userPurchasedSimilar })
+
+    // Apply Constraint 1: If no similar purchases, auto-set all dependent fields
+    if (userPurchasedSimilar === 'no') {
+      updateFormData({
+        userPurchasedExact: 'no',
+        userReviewedSimilar: 'no',
+        userReviewedExact: 'no'
+      })
+      setCurrentStep(7) // Enable submit button
     } else {
-      // Skip Field 7, mark as ready for submit
-      updateFormData({ userHasPurchasedExact: 'no' })
-      setCurrentStep(7) // Still set to 7 to enable submit button
+      setCurrentStep(7) // Show userReviewedSimilar field
     }
   }
 
-  const handleField7Complete = (userHasPurchasedExact: 'yes' | 'no') => {
-    updateFormData({ userHasPurchasedExact })
+  const handleField7Complete = (userReviewedSimilar: 'yes' | 'no') => {
+    updateFormData({ userReviewedSimilar })
+
+    // Apply Constraint 2: If no reviews on similar, can't review exact
+    if (userReviewedSimilar === 'no') {
+      updateFormData({ userReviewedExact: 'no' })
+    }
+
+    setCurrentStep(8) // Show userPurchasedExact field
+  }
+
+  const handleField8Complete = (userPurchasedExact: 'yes' | 'no') => {
+    updateFormData({ userPurchasedExact })
+
+    // Apply Constraint: Can't review what you didn't purchase
+    if (userPurchasedExact === 'no') {
+      updateFormData({ userReviewedExact: 'no' })
+      setCurrentStep(9) // Enable submit button
+    } else if (formData.hasMainProductReviews === 'yes') {
+      setCurrentStep(9) // Show userReviewedExact field
+    } else {
+      setCurrentStep(9) // Enable submit button (skip userReviewedExact)
+    }
+  }
+
+  const handleField9Complete = (userReviewedExact: 'yes' | 'no') => {
+    updateFormData({ userReviewedExact })
   }
 
   const handleSubmit = async () => {
@@ -827,7 +867,38 @@ export default function HomePage() {
     }
   }
 
-  const canSubmit = currentStep === 7 && formData.userHasPurchasedExact !== undefined
+  // Determine if form can be submitted
+  const canSubmit = (() => {
+    // Must have product data and user persona
+    if (!formData.productData || !formData.userPersona) return false
+
+    // Must have completed step 6 (userPurchasedSimilar)
+    if (!formData.userPurchasedSimilar) return false
+
+    // If user didn't purchase similar, we're done (step 7)
+    if (formData.userPurchasedSimilar === 'no') {
+      return currentStep >= 7
+    }
+
+    // If user purchased similar, must complete step 7 (userReviewedSimilar)
+    if (!formData.userReviewedSimilar) return false
+
+    // If user didn't purchase similar, must complete step 8 (userPurchasedExact)
+    if (!formData.userPurchasedExact) return false
+
+    // If user didn't purchase exact, we're done (step 9)
+    if (formData.userPurchasedExact === 'no') {
+      return currentStep >= 9
+    }
+
+    // If user purchased exact AND main product has no reviews, we're done (step 9)
+    if (formData.hasMainProductReviews === 'no') {
+      return currentStep >= 9
+    }
+
+    // If user purchased exact AND main product has reviews, must complete step 9 (userReviewedExact)
+    return currentStep >= 9 && formData.userReviewedExact !== undefined
+  })()
 
   // Auto-scroll to submit button when it appears
   useEffect(() => {
@@ -1004,32 +1075,32 @@ export default function HomePage() {
                   productData={formData.productData}
                 />
 
-                {/* Field 2: Review Status (reviews pre-fetched, user confirms if they exist) */}
+                {/* Field 2: Main Product Review Status */}
                 {currentStep >= 2 && formData.productData && (
                   <ReviewStatusField
-                    value={formData.hasReviews}
+                    value={formData.hasMainProductReviews}
                     onChange={handleField2Complete}
                     productUrl={formData.productUrl}
                   />
                 )}
 
-                {/* Field 3: Sentiment Spread (only if reviews exist) */}
-                {currentStep >= 3 && formData.hasReviews === 'yes' && (
+                {/* Field 3: Sentiment Spread (only if main product has reviews) */}
+                {currentStep >= 3 && formData.hasMainProductReviews === 'yes' && (
                   <SentimentSpreadField
                     value={formData.sentimentSpread}
                     onChange={handleField3Complete}
                   />
                 )}
 
-                {/* Field 4 */}
-                {currentStep >= 4 && formData.hasReviews === 'no' && (
+                {/* Field 4: Similar Products Reviews (only if main product has no reviews) */}
+                {currentStep >= 4 && formData.hasMainProductReviews === 'no' && (
                   <SimilarProductsField
-                    value={formData.hasSimilarProductsReviewed}
+                    value={formData.hasSimilarProductsReviews}
                     onChange={handleField4Complete}
                   />
                 )}
 
-                {/* Field 5 */}
+                {/* Field 5: User Persona */}
                 {currentStep >= 5 && (
                   <UserPersonaField
                     value={formData.userPersona}
@@ -1037,20 +1108,39 @@ export default function HomePage() {
                   />
                 )}
 
-                {/* Field 6 */}
+                {/* Field 6: User Purchase History (Similar Products) */}
                 {currentStep >= 6 && formData.userPersona && (
                   <UserPurchaseHistoryField
-                    value={formData.userHasPurchasedSimilar}
+                    value={formData.userPurchasedSimilar}
                     onChange={handleField6Complete}
                   />
                 )}
 
-                {/* Field 7 - Only show if user purchased similar products */}
-                {currentStep >= 7 && formData.userHasPurchasedSimilar === 'yes' && (
+                {/* Field 7: User Reviewed Similar (only if user purchased similar) */}
+                {currentStep >= 7 && formData.userPurchasedSimilar === 'yes' && (
+                  <UserReviewedSimilarField
+                    value={formData.userReviewedSimilar}
+                    onChange={handleField7Complete}
+                  />
+                )}
+
+                {/* Field 8: User Purchased Exact (only if user purchased similar) */}
+                {currentStep >= 8 && formData.userPurchasedSimilar === 'yes' && (
                   <UserExactProductField
                     productTitle={formData.productData?.title || 'this product'}
-                    value={formData.userHasPurchasedExact}
-                    onChange={handleField7Complete}
+                    value={formData.userPurchasedExact}
+                    onChange={handleField8Complete}
+                  />
+                )}
+
+                {/* Field 9: User Reviewed Exact (only if user purchased exact AND main product has reviews) */}
+                {currentStep >= 9 &&
+                 formData.userPurchasedExact === 'yes' &&
+                 formData.hasMainProductReviews === 'yes' && (
+                  <UserReviewedExactField
+                    productTitle={formData.productData?.title || 'this product'}
+                    value={formData.userReviewedExact}
+                    onChange={handleField9Complete}
                   />
                 )}
 
