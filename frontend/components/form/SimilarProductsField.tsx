@@ -9,7 +9,7 @@ export function SimilarProductsField({ value, onChange }: Props) {
   return (
     <div className="card animate-slide-in">
       <label className="block text-lg font-semibold text-gray-800 mb-3">
-        4. Similar Product History
+        4. Similar Products Review History
       </label>
       <p className="text-sm text-gray-600 mb-4">
         Have similar or comparable products been reviewed by customers?
