@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getRandomName, getRandomCity, generateMockEmail, generateRandomAge, generateRandomZip, getGenderFromName } from '@/lib/utils'
+import { getRandomName, getRandomCity, generateMockEmail, generateRandomAge, generateRandomZip } from '@/lib/utils'
 
 interface UserPersona {
   name: string
@@ -21,16 +21,41 @@ interface Props {
 
 export function UserPersonaField({ value, onChange }: Props) {
   const [persona, setPersona] = useState<UserPersona | null>(value || null)
+  const [isGenerating, setIsGenerating] = useState(false)
 
-  useEffect(() => {
-    if (!persona) {
-      // Auto-generate persona on mount
+  // Generate persona using agent API (with fallback to helper functions)
+  const generatePersona = async () => {
+    setIsGenerating(true)
+
+    try {
+      // Try agent-based generation first
+      const response = await fetch('/api/generate-persona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      if (!response.ok) {
+        throw new Error('API request failed')
+      }
+
+      const result = await response.json()
+
+      if (result.success && result.persona) {
+        setPersona(result.persona)
+        console.log('✅ Generated persona using agent:', result.persona)
+      } else {
+        throw new Error(result.error || 'Failed to generate persona')
+      }
+    } catch (err: any) {
+      console.warn('⚠️ Agent generation failed, falling back to helper functions:', err.message)
+
+      // Fallback to helper functions if API fails
       const gender: 'Male' | 'Female' = Math.random() > 0.5 ? 'Male' : 'Female'
       const name = getRandomName(gender)
       const city = getRandomCity()
       const age = generateRandomAge()
 
-      const newPersona: UserPersona = {
+      const fallbackPersona: UserPersona = {
         name,
         email: generateMockEmail(name),
         age,
@@ -41,7 +66,16 @@ export function UserPersonaField({ value, onChange }: Props) {
         gender,
       }
 
-      setPersona(newPersona)
+      setPersona(fallbackPersona)
+      console.log('Generated persona using fallback:', fallbackPersona)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!persona) {
+      generatePersona()
     }
   }, [persona])
 
@@ -52,23 +86,7 @@ export function UserPersonaField({ value, onChange }: Props) {
   }
 
   const handleRegenerate = () => {
-    const gender: 'Male' | 'Female' = Math.random() > 0.5 ? 'Male' : 'Female'
-    const name = getRandomName(gender)
-    const city = getRandomCity()
-    const age = generateRandomAge()
-
-    const newPersona: UserPersona = {
-      name,
-      email: generateMockEmail(name),
-      age,
-      location: `${city.city}, ${city.state}`,
-      city: city.city,
-      state: city.state,
-      zip: generateRandomZip(),
-      gender,
-    }
-
-    setPersona(newPersona)
+    setPersona(null) // Clear current persona to trigger regeneration
   }
 
   if (!persona) {
@@ -136,13 +154,15 @@ export function UserPersonaField({ value, onChange }: Props) {
       <div className="flex gap-3 mt-4">
         <button
           onClick={handleRegenerate}
-          className="btn-secondary flex-1"
+          disabled={isGenerating}
+          className="btn-secondary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Regenerate
+          {isGenerating ? 'Generating...' : 'Regenerate'}
         </button>
         <button
           onClick={handleContinue}
-          className="btn-primary flex-1"
+          disabled={isGenerating}
+          className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Continue
         </button>
