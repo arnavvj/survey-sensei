@@ -14,10 +14,10 @@ export function ReviewStatusField({ value, onChange }: Props) {
   return (
     <div className="card animate-slide-in">
       <label className="block text-lg font-semibold text-gray-800 mb-3">
-        2. Product Review History
+        2. Main Product Review History
       </label>
       <p className="text-sm text-gray-600 mb-4">
-        Has this product been reviewed by customers before?
+        Has this main product been reviewed by customers before?
       </p>
 
       <div className="flex gap-3">
