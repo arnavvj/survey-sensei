@@ -10,7 +10,7 @@ export function UserExactProductField({ productTitle, value, onChange }: Props) 
   return (
     <div className="card animate-slide-in">
       <label className="block text-lg font-semibold text-gray-800 mb-3">
-        7. Exact Product Purchase
+        8. User Purchase History (Exact Product)
       </label>
       <p className="text-sm text-gray-600 mb-4">
         Has this user bought or returned this exact product before?
