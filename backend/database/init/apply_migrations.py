@@ -4,13 +4,11 @@ Simple Database Migration Tool
 Applies SQL migrations using Supabase REST API
 """
 
-import os
 import sys
-import requests
 from pathlib import Path
 
-# Add backend to path
-backend_path = Path(__file__).parent.parent.parent / "backend"
+# Add backend directory to Python path
+backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
 from config import settings
@@ -101,12 +99,12 @@ def main():
     print("\n3. Run migrations:\n")
     print("   On macOS/Linux:")
     print(f"   export PGPASSWORD='your-db-password'")
-    print(f"   cat database/migrations/*.sql | psql \\")
+    print(f"   cat backend/database/migrations/*.sql | psql \\")
     print(f"       -h db.{project_ref}.supabase.co \\")
     print(f"       -p 5432 -U postgres -d postgres")
     print("\n   On Windows (PowerShell):")
     print(f"   $env:PGPASSWORD='your-db-password'")
-    print(f"   Get-Content database\\migrations\\*.sql | psql `")
+    print(f"   Get-Content backend\\database\\migrations\\*.sql | psql `")
     print(f"       -h db.{project_ref}.supabase.co `")
     print(f"       -p 5432 -U postgres -d postgres")
 

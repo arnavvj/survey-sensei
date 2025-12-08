@@ -4,14 +4,12 @@ Database Migration Runner
 Runs all SQL migration files in order using Supabase connection
 """
 
-import os
 import sys
 from pathlib import Path
 from supabase import create_client, Client
-from dotenv import load_dotenv
 
-# Add backend to path to import config
-backend_path = Path(__file__).parent.parent.parent / "backend"
+# Add backend directory to Python path
+backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
 from config import settings
@@ -118,16 +116,11 @@ def print_manual_instructions():
     print(f"        -p 5432 \\")
     print(f"        -U postgres \\")
     print(f"        -d postgres \\")
-    print(f"        -f database/migrations/001_initial_schema.sql\n")
-    print(f"   psql -h db.{project_ref}.supabase.co \\")
-    print(f"        -p 5432 \\")
-    print(f"        -U postgres \\")
-    print(f"        -d postgres \\")
-    print(f"        -f database/migrations/002_add_conversation_history.sql")
+    print(f"        -f backend/database/migrations/001_enable_extensions.sql")
 
     print("\n\nOption 3: Run all migrations at once")
     print("-" * 60)
-    print("   cat database/migrations/*.sql | psql \\")
+    print("   cat backend/database/migrations/*.sql | psql \\")
     print(f"        -h db.{project_ref}.supabase.co \\")
     print(f"        -p 5432 \\")
     print(f"        -U postgres \\")

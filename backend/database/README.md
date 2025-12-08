@@ -25,6 +25,33 @@ This database schema is optimized for a **GenAI-powered agentic survey system**.
    - `session_context` (JSONB) stores agent memory
    - Enables multi-turn conversational surveys
 
+## Folder Structure
+
+```
+backend/
+├── database/                # Database schemas and migrations
+│   ├── init/               # Migration tools and scripts
+│   │   ├── apply_migrations.py  # Python migration tool (recommended)
+│   │   ├── run_migrations.py    # Alternative Python runner
+│   │   └── run_migrations.sh    # Bash script for psql
+│   ├── migrations/         # SQL migration files (run in order)
+│   │   ├── 001_enable_extensions.sql
+│   │   ├── 002_create_products_table.sql
+│   │   ├── 003_create_users_table.sql
+│   │   ├── 004_create_transactions_table.sql
+│   │   ├── 005_create_reviews_table.sql
+│   │   ├── 006_create_survey_table.sql
+│   │   ├── 007_create_survey_sessions_table.sql
+│   │   ├── 008_create_triggers.sql
+│   │   ├── 009_enable_row_level_security.sql
+│   │   ├── 010_add_conversation_history_column.sql
+│   │   └── _combined_migrations.sql  # Auto-generated combined SQL
+│   ├── functions/          # Custom PostgreSQL functions
+│   ├── seed/              # Sample data for testing
+│   ├── supabase_client.py # Supabase Python client
+│   └── README.md          # This file
+```
+
 ## Database Schema
 
 ### Core Tables
@@ -85,15 +112,15 @@ Tracks complete survey sessions for analytics.
 ### Option 1: Automated Migration Tool (Easiest)
 
 ```bash
-# Run the Python migration tool
+# Run the Python migration tool from backend directory
 cd backend
 conda activate survey-sensei
-python ../database/init/apply_migrations.py
+python database/init/apply_migrations.py
 ```
 
 This will:
 - Display all migration SQL
-- Save combined SQL to `database/migrations/_combined_migrations.sql`
+- Save combined SQL to `backend/database/migrations/_combined_migrations.sql`
 - Provide copy-paste instructions for Supabase SQL Editor
 
 ### Option 2: Using psql (Terminal)
@@ -102,21 +129,21 @@ This will:
 # Get your database password from: Supabase Dashboard → Settings → Database
 export PGPASSWORD='your-database-password'
 
-# Run all migrations
-cat database/migrations/*.sql | psql \
+# Run all migrations from project root
+cat backend/database/migrations/*.sql | psql \
     -h db.tursagcbtccbzdyjavex.supabase.co \
     -p 5432 -U postgres -d postgres
 ```
 
 Or use the provided script:
 ```bash
-chmod +x database/init/run_migrations.sh
-PGPASSWORD='your-password' ./database/init/run_migrations.sh
+chmod +x backend/database/init/run_migrations.sh
+PGPASSWORD='your-password' ./backend/database/init/run_migrations.sh
 ```
 
 ### Option 3: Manual SQL Editor
 
-Copy and paste the contents of `database/migrations/_combined_migrations.sql` (auto-generated) or individual migration files into the Supabase SQL Editor:
+Copy and paste the contents of `backend/database/migrations/_combined_migrations.sql` (auto-generated) or individual migration files into the Supabase SQL Editor:
 - Go to: https://tursagcbtccbzdyjavex.supabase.co/project/default/sql/new
 - Paste SQL and click "Run"
 
@@ -127,32 +154,6 @@ Copy and paste the contents of `database/migrations/_combined_migrations.sql` (a
 1. **Supabase Account**: https://supabase.com
 2. **pgvector Extension**: Required for embeddings (auto-installed via migrations)
 3. **Conda Environment**: Uses `survey-sensei` environment (no separate requirements.txt needed)
-
-### Folder Structure
-
-```
-database/
-├── init/                    # Migration tools and scripts
-│   ├── apply_migrations.py  # Python migration tool (recommended)
-│   ├── run_migrations.py    # Alternative Python runner
-│   └── run_migrations.sh    # Bash script for psql
-├── migrations/              # SQL migration files (run in order)
-│   ├── 001_enable_extensions.sql
-│   ├── 002_create_products_table.sql
-│   ├── 003_create_users_table.sql
-│   ├── 004_create_transactions_table.sql
-│   ├── 005_create_reviews_table.sql
-│   ├── 006_create_survey_table.sql
-│   ├── 007_create_survey_sessions_table.sql
-│   ├── 008_create_triggers.sql
-│   ├── 009_enable_row_level_security.sql
-│   └── _combined_migrations.sql  # Auto-generated combined SQL
-├── seed/                    # Sample data for testing
-│   └── 001_sample_data.sql
-├── functions/               # Custom PostgreSQL functions
-│   └── match_products.sql
-└── README.md               # This file
-```
 
 ### Migration Files
 
