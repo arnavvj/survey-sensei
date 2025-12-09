@@ -1,19 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 })
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('Generating user persona using Claude Haiku...')
+    console.log('Generating user persona using GPT-4o-mini...')
 
-    // Use Claude Haiku (cheap, fast) for persona generation
-    const message = await anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
+    // Use GPT-4o-mini (cheap, fast) for persona generation
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
       max_tokens: 500,
       temperature: 1.0, // High temperature for diversity
+      response_format: { type: 'json_object' },
       messages: [
         {
           role: 'user',
@@ -44,18 +45,11 @@ Return ONLY valid JSON in this exact format:
       ],
     })
 
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
+    const responseText = completion.choices[0].message.content || '{}'
     console.log('Raw response:', responseText)
 
-    // Extract JSON from response (handle markdown code blocks)
-    let jsonText = responseText.trim()
-    if (jsonText.startsWith('```json')) {
-      jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    } else if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/```\n?/g, '').trim()
-    }
-
-    const persona = JSON.parse(jsonText)
+    // Parse JSON response (GPT-4o-mini with json_object mode returns pure JSON)
+    const persona = JSON.parse(responseText)
 
     // Validate required fields
     const requiredFields = ['name', 'email', 'age', 'city', 'state', 'zip', 'gender']

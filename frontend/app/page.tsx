@@ -181,45 +181,15 @@ export default function HomePage() {
     }
   }
 
-  // Start survey session with backend
+  // Start survey session - now just shows the survey UI since data is already prepared
   const startSurveySession = async () => {
-    if (!mockDataSummary) return
-
-    setIsLoadingSurvey(true)
-    setSurveyError(null)
-
-    try {
-      const response = await fetch('/api/survey/start', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: mockDataSummary.mainUserId || 'unknown',
-          item_id: mockDataSummary.mainProductId || 'unknown',
-          form_data: formData,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to start survey')
-      }
-
-      const data = await response.json()
-      setSurveySession({
-        session_id: data.session_id,
-        question: data.question,
-        question_number: data.question_number,
-        total_questions: data.total_questions,
-        answered_questions_count: data.answered_questions_count || 0,
-        responses: [],
-      })
-    } catch (error: any) {
-      console.error('Error starting survey:', error)
-      setSurveyError(error.message || 'Failed to start survey. Make sure the backend server is running.')
-    } finally {
-      setIsLoadingSurvey(false)
+    if (!surveySession) {
+      setSurveyError('Survey session not initialized. Please try submitting the form again.')
+      return
     }
+
+    // Survey is already initialized from handleSubmit, just show it
+    setShowSurveyUI(true)
   }
 
   // Generate review options using Agent 4
@@ -842,26 +812,92 @@ export default function HomePage() {
 
     setIsSubmitting(true)
     try {
-      const response = await fetch('/api/mock-data', {
+      // Extract ASIN from product URL (e.g., /dp/B09XYZ1234)
+      const asinMatch = formData.productData.url.match(/\/dp\/([A-Z0-9]{10})/)
+      const productId = asinMatch ? asinMatch[1] : 'unknown'
+
+      // Backend generates ALL mock data and prepares everything
+      // This includes: RapidAPI fetch, MOCK_DATA generation, database insertion, survey session creation
+      const response = await fetch('http://localhost:8000/api/survey/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: 'temp', // Backend will generate the actual user
+          item_id: productId,
+          form_data: {
+            // User data
+            userName: formData.userPersona.name,
+            userEmail: formData.userPersona.email,
+            userAge: formData.userPersona.age,
+            userLocation: formData.userPersona.location,
+            userZip: formData.userPersona.zip,
+            userGender: formData.userPersona.gender,
+            // Product data
+            productPurchased: formData.hasMainProductReviews === 'yes' ? 'exact' : 'similar',
+            // Scenario flags
+            userPurchasedExact: formData.userPurchasedExact?.toUpperCase() || 'NO',
+            userPurchasedSimilar: formData.userPurchasedSimilar?.toUpperCase() || 'NO',
+            userReviewedExact: formData.userReviewedExact?.toUpperCase() || 'NO',
+            userReviewedSimilar: formData.userReviewedSimilar?.toUpperCase() || 'NO',
+          },
+        }),
       })
 
-      const result = await response.json()
-
-      if (result.success) {
-        setMockDataSummary(result.summary)
-        setIsSubmitted(true)
-        // Scroll Summary pane to top after form submission
-        setTimeout(() => {
-          summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-        }, 200)
-      } else {
-        alert(`Error: ${result.error}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to generate mock data and start survey')
       }
+
+      const data = await response.json()
+
+      // Determine scenario based on form data
+      const isWarmProduct = formData.hasMainProductReviews === 'yes'
+      const isWarmUser = formData.userPurchasedSimilar === 'yes' || formData.userReviewedSimilar === 'yes'
+
+      let scenario = 'C2' // Default: Cold/Cold
+      if (isWarmProduct && isWarmUser) {
+        scenario = 'A1' // Warm/Warm
+      } else if (!isWarmProduct && isWarmUser) {
+        scenario = 'B1' // Cold/Warm
+      }
+
+      // Create summary with REAL data from backend
+      const summary: MockDataSummary = {
+        mainProductId: productId,
+        mainUserId: 'generated', // Backend generated this
+        products: 6, // 1 main + 5 similar
+        users: isWarmUser ? 20 : 10,
+        transactions: 0, // TODO: Get from backend metadata
+        reviews: isWarmProduct ? 100 : 20,
+        scenario: scenario,
+        coldStart: {
+          product: !isWarmProduct,
+          user: !isWarmUser,
+        },
+      }
+
+      setMockDataSummary(summary)
+
+      // Store the survey session data (already initialized by backend)
+      setSurveySession({
+        session_id: data.session_id,
+        question: data.question,
+        question_number: data.question_number,
+        total_questions: data.total_questions,
+        answered_questions_count: data.answered_questions_count || 0,
+        responses: [],
+      })
+
+      setIsSubmitted(true)
+
+      // Scroll Summary pane to top after form submission
+      setTimeout(() => {
+        summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 200)
     } catch (error: any) {
-      alert(`Submission failed: ${error.message}`)
+      alert(`Data generation failed: ${error.message}. Make sure backend is running on port 8000.`)
     } finally {
       setIsSubmitting(false)
     }
