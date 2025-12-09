@@ -17,6 +17,7 @@ from .mock_trx_agent import MockTransactionAgent
 from .mock_rvw_agent import MockReviewAgent
 from .orchestrator import MockDataOrchestrator
 from .cache import MockDataCache, get_cache
+from .scenario_builder import build_scenario_config, determine_scenario_id
 
 __all__ = [
     'MockProductAgent',
@@ -26,4 +27,6 @@ __all__ = [
     'MockDataOrchestrator',
     'MockDataCache',
     'get_cache',
+    'build_scenario_config',
+    'determine_scenario_id',
 ]

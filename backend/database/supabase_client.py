@@ -88,6 +88,29 @@ class SupabaseDB:
 
         return products_with_reviews
 
+    def insert_products_batch(self, products: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert products into database
+
+        Args:
+            products: List of product dictionaries
+
+        Returns:
+            Number of products inserted
+        """
+        if not products:
+            return 0
+
+        try:
+            response = self.client.table("products").upsert(
+                products,
+                on_conflict="item_id"
+            ).execute()
+            return len(products)
+        except Exception as e:
+            print(f"Failed to insert products: {str(e)}")
+            raise
+
     # ============================================================================
     # USER OPERATIONS
     # ============================================================================
@@ -130,6 +153,29 @@ class SupabaseDB:
         )
         return response.data
 
+    def insert_users_batch(self, users: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert users into database
+
+        Args:
+            users: List of user dictionaries
+
+        Returns:
+            Number of users inserted
+        """
+        if not users:
+            return 0
+
+        try:
+            response = self.client.table("users").upsert(
+                users,
+                on_conflict="user_id"
+            ).execute()
+            return len(users)
+        except Exception as e:
+            print(f"Failed to insert users: {str(e)}")
+            raise
+
     def find_user_similar_product_purchases(
         self, user_id: str, product_embedding: List[float], limit: int = 5
     ) -> List[Dict[str, Any]]:
@@ -166,6 +212,52 @@ class SupabaseDB:
         # Sort by similarity and return top matches
         similar_transactions.sort(key=lambda x: x["similarity_score"], reverse=True)
         return similar_transactions[:limit]
+
+    def insert_transactions_batch(self, transactions: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert transactions into database
+
+        Args:
+            transactions: List of transaction dictionaries
+
+        Returns:
+            Number of transactions inserted
+        """
+        if not transactions:
+            return 0
+
+        try:
+            response = self.client.table("transactions").upsert(
+                transactions,
+                on_conflict="transaction_id"
+            ).execute()
+            return len(transactions)
+        except Exception as e:
+            print(f"Failed to insert transactions: {str(e)}")
+            raise
+
+    def insert_reviews_batch(self, reviews: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert reviews into database
+
+        Args:
+            reviews: List of review dictionaries
+
+        Returns:
+            Number of reviews inserted
+        """
+        if not reviews:
+            return 0
+
+        try:
+            response = self.client.table("reviews").upsert(
+                reviews,
+                on_conflict="review_id"
+            ).execute()
+            return len(reviews)
+        except Exception as e:
+            print(f"Failed to insert reviews: {str(e)}")
+            raise
 
     # ============================================================================
     # SURVEY OPERATIONS

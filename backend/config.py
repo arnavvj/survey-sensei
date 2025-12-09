@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     max_similar_products: int = 5
     max_user_history: int = 10
 
+    # RapidAPI Configuration
+    rapidapi_key: Optional[str] = None
+
     class Config:
         env_file = ".env.local"
         case_sensitive = False

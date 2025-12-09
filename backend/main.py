@@ -9,8 +9,14 @@ from typing import Dict, Any, List, Optional, Union
 from config import settings
 from agents import survey_agent
 from agents.review_gen_agent import review_gen_agent
+from agents.mock_data import MockDataOrchestrator, build_scenario_config
+from integrations import RapidAPIClient
 from database import db
 import uvicorn
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Survey Sensei Backend",
@@ -120,14 +126,75 @@ async def health_check():
 
 @app.post("/api/survey/start", response_model=StartSurveyResponse)
 async def start_survey(request: StartSurveyRequest):
-    """Start new survey session, return first question"""
+    """
+    Start new survey session with MOCK_DATA generation pipeline
+
+    Flow:
+    1. Build scenario configuration from form data
+    2. Fetch product details + reviews from RapidAPI
+    3. Run MOCK_DATA_MINI_AGENT orchestrator to generate simulation data
+    4. Insert all generated data into database
+    5. Start survey with generated context
+    """
     try:
+        logger.info(f"🚀 Starting survey with MOCK_DATA pipeline for user: {request.user_id}, item: {request.item_id}")
+
+        # STEP 1: Build scenario configuration
+        logger.info("📋 Building scenario configuration...")
+        scenario_config = build_scenario_config(request.form_data)
+        logger.info(f"✅ Scenario determined: {scenario_config['scenario_id']} ({scenario_config['group']})")
+
+        # STEP 2: Fetch product + reviews from RapidAPI
+        logger.info("🌐 Fetching product details from RapidAPI...")
+        rapidapi_client = RapidAPIClient()
+
+        # Extract ASIN from request (assume it's in form_data or item_id)
+        asin = request.item_id if request.item_id.startswith('B') else request.form_data.get('productASIN', request.item_id)
+
+        main_product = rapidapi_client.fetch_product_details(asin)
+        if not main_product:
+            raise HTTPException(status_code=404, detail=f"Product not found: {asin}")
+        logger.info(f"✅ Fetched product: {main_product['title']}")
+
+        # Fetch reviews only for warm products (Group A scenarios)
+        api_reviews = []
+        if scenario_config['group'] == 'warm_warm':
+            logger.info("🌐 Fetching product reviews from RapidAPI...")
+            api_reviews = rapidapi_client.fetch_product_reviews(asin, max_pages=2)
+            logger.info(f"✅ Fetched {len(api_reviews)} reviews from RapidAPI")
+
+        # STEP 3: Run MOCK_DATA orchestrator
+        logger.info("🤖 Running MOCK_DATA_MINI_AGENT orchestrator...")
+        orchestrator = MockDataOrchestrator(use_cache=True)
+
+        mock_data = await orchestrator.generate_simulation_data(
+            form_data=request.form_data,
+            main_product=main_product,
+            api_reviews=api_reviews,
+            scenario_config=scenario_config
+        )
+        logger.info(f"✅ Generated mock data: {mock_data['metadata']}")
+
+        # STEP 4: Insert data into database
+        logger.info("🗄️  Inserting generated data into database...")
+        db.insert_products_batch(mock_data['products'])
+        db.insert_users_batch(mock_data['users'])
+        db.insert_transactions_batch(mock_data['transactions'])
+        db.insert_reviews_batch(mock_data['reviews'])
+        logger.info("✅ Database insertion complete")
+
+        # STEP 5: Start survey with main user and main product
+        main_user_id = mock_data['metadata']['main_user_id']
+        main_product_id = mock_data['metadata']['main_product_id']
+
+        logger.info(f"📝 Starting survey session for user: {main_user_id}, product: {main_product_id}")
         result = survey_agent.start_survey(
-            user_id=request.user_id,
-            item_id=request.item_id,
+            user_id=main_user_id,
+            item_id=main_product_id,
             form_data=request.form_data,
         )
 
+        logger.info("🎉 Survey started successfully")
         return StartSurveyResponse(
             session_id=result["session_id"],
             question=result["question"],
@@ -136,10 +203,12 @@ async def start_survey(request: StartSurveyRequest):
             answered_questions_count=result.get("answered_questions_count", 0),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
-        print(f"ERROR in start_survey: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"ERROR in start_survey: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to start survey: {str(e)}")
 
 
