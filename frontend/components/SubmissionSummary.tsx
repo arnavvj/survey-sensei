@@ -285,8 +285,7 @@ export function SubmissionSummary({ productData, mockDataSummary, formData }: Pr
 
         <div className="mt-6 p-4 bg-white rounded-lg border border-primary-300">
           <p className="text-sm text-gray-700 italic">
-            The simulation is complete! You can now proceed with Part 2 of Phase 1, which will
-            demonstrate the GenAI-powered survey generation system using this mock data.
+            The simulation is complete! Click "Next: Start Survey" to begin the AI-powered survey that uses this mock data to generate personalized questions.
           </p>
         </div>
       </section>
