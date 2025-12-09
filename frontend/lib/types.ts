@@ -73,7 +73,8 @@ export interface MockDataSummary {
   users: number
   transactions: number
   reviews: number
-  scenario: string
+  scenario: string  // Scenario code (e.g., "A1", "B1", "C2")
+  scenarioDescription?: string  // Human-readable description (e.g., "Warm Product / Warm User")
   coldStart: {
     product: boolean
     user: boolean

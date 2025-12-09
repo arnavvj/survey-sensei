@@ -183,13 +183,67 @@ export default function HomePage() {
 
   // Start survey session - now just shows the survey UI since data is already prepared
   const startSurveySession = async () => {
-    if (!surveySession) {
-      setSurveyError('Survey session not initialized. Please try submitting the form again.')
+    if (!mockDataSummary || !formData.productData || !formData.userPersona) {
+      setSurveyError('Please complete the form and generate mock data first.')
       return
     }
 
-    // Survey is already initialized from handleSubmit, just show it
-    setShowSurveyUI(true)
+    setIsLoadingSurvey(true)
+    setSurveyError(null)
+
+    try {
+      // SUMMARY -> SURVEY transition: Start the survey using already-generated mock data
+      const response = await fetch('http://localhost:8000/api/survey/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: mockDataSummary.mainUserId,
+          item_id: mockDataSummary.mainProductId,
+          form_data: {
+            // User data
+            userName: formData.userPersona.name,
+            userEmail: formData.userPersona.email,
+            userAge: formData.userPersona.age,
+            userLocation: formData.userPersona.location,
+            userZip: formData.userPersona.zip,
+            userGender: formData.userPersona.gender,
+            // Product data
+            productPurchased: formData.hasMainProductReviews === 'yes' ? 'exact' : 'similar',
+            // Scenario flags
+            userPurchasedExact: formData.userPurchasedExact?.toUpperCase() || 'NO',
+            userPurchasedSimilar: formData.userPurchasedSimilar?.toUpperCase() || 'NO',
+            userReviewedExact: formData.userReviewedExact?.toUpperCase() || 'NO',
+            userReviewedSimilar: formData.userReviewedSimilar?.toUpperCase() || 'NO',
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to start survey')
+      }
+
+      const data = await response.json()
+
+      // Initialize survey session with first question
+      setSurveySession({
+        session_id: data.session_id,
+        question: data.question,
+        question_number: data.question_number,
+        total_questions: data.total_questions,
+        answered_questions_count: data.answered_questions_count || 0,
+        responses: [],
+      })
+
+      setShowSurveyUI(true)
+    } catch (error: any) {
+      console.error('Error starting survey:', error)
+      setSurveyError(error.message || 'Failed to start survey')
+    } finally {
+      setIsLoadingSurvey(false)
+    }
   }
 
   // Generate review options using Agent 4
@@ -816,9 +870,9 @@ export default function HomePage() {
       const asinMatch = formData.productData.url.match(/\/dp\/([A-Z0-9]{10})/)
       const productId = asinMatch ? asinMatch[1] : 'unknown'
 
-      // Backend generates ALL mock data and prepares everything
-      // This includes: RapidAPI fetch, MOCK_DATA generation, database insertion, survey session creation
-      const response = await fetch('http://localhost:8000/api/survey/start', {
+      // FORM -> SUMMARY transition: Generate mock data ONLY (no survey start)
+      // This includes: RapidAPI fetch, MOCK_DATA generation, database insertion
+      const response = await fetch('http://localhost:8000/api/mock-data/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -847,7 +901,7 @@ export default function HomePage() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || 'Failed to generate mock data and start survey')
+        throw new Error(errorData.detail || 'Failed to generate mock data')
       }
 
       const data = await response.json()
@@ -856,22 +910,30 @@ export default function HomePage() {
       const isWarmProduct = formData.hasMainProductReviews === 'yes'
       const isWarmUser = formData.userPurchasedSimilar === 'yes' || formData.userReviewedSimilar === 'yes'
 
-      let scenario = 'C2' // Default: Cold/Cold
+      let scenarioCode = 'C2' // Default: Cold/Cold
+      let scenarioDescription = 'Cold Product / Cold User'
+
       if (isWarmProduct && isWarmUser) {
-        scenario = 'A1' // Warm/Warm
+        scenarioCode = 'A1'
+        scenarioDescription = 'Warm Product / Warm User'
       } else if (!isWarmProduct && isWarmUser) {
-        scenario = 'B1' // Cold/Warm
+        scenarioCode = 'B1'
+        scenarioDescription = 'Cold Product / Warm User'
+      } else if (isWarmProduct && !isWarmUser) {
+        scenarioCode = 'A2'
+        scenarioDescription = 'Warm Product / Cold User'
       }
 
-      // Create summary with REAL data from backend
+      // Create summary with REAL data from backend metadata
       const summary: MockDataSummary = {
-        mainProductId: productId,
-        mainUserId: 'generated', // Backend generated this
-        products: 6, // 1 main + 5 similar
-        users: isWarmUser ? 20 : 10,
-        transactions: 0, // TODO: Get from backend metadata
-        reviews: isWarmProduct ? 100 : 20,
-        scenario: scenario,
+        mainProductId: data.main_product_id,
+        mainUserId: data.main_user_id,
+        products: data.metadata.total_products || 0,
+        users: data.metadata.total_users || 0,
+        transactions: data.metadata.total_transactions || 0,
+        reviews: data.metadata.total_reviews || 0,
+        scenario: scenarioCode,
+        scenarioDescription: scenarioDescription,
         coldStart: {
           product: !isWarmProduct,
           user: !isWarmUser,
@@ -880,16 +942,7 @@ export default function HomePage() {
 
       setMockDataSummary(summary)
 
-      // Store the survey session data (already initialized by backend)
-      setSurveySession({
-        session_id: data.session_id,
-        question: data.question,
-        question_number: data.question_number,
-        total_questions: data.total_questions,
-        answered_questions_count: data.answered_questions_count || 0,
-        responses: [],
-      })
-
+      // DO NOT set survey session here - it will be set when user clicks "Generate Survey"
       setIsSubmitted(true)
 
       // Scroll Summary pane to top after form submission

@@ -168,7 +168,10 @@ export function SubmissionSummary({ productData, mockDataSummary, formData }: Pr
 
         <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
           <h3 className="font-semibold text-gray-900 mb-2">Scenario Description</h3>
-          <p className="text-gray-700">{mockDataSummary.scenario}</p>
+          <p className="text-gray-700">
+            {mockDataSummary.scenarioDescription || mockDataSummary.scenario}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">Scenario ID: {mockDataSummary.scenario}</p>
         </div>
       </section>
 
