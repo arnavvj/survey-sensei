@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS products (
     photos JSONB, -- Array of product image URLs (from product_photos field)
     price DECIMAL(12, 2), -- Current product price
     star_rating DECIMAL(3, 2), -- Average star rating (e.g., 4.7)
-    num_ratings INTEGER DEFAULT 0, -- Total number of ratings/reviews
+    num_ratings INTEGER DEFAULT 0, -- Total number of ratings/reviews (from RapidAPI)
+    review_count INTEGER DEFAULT 0, -- Actual review count in our database (auto-updated by trigger)
+    category VARCHAR(50) DEFAULT 'general', -- Product category (electronics, clothing, home, etc.)
 
     -- Vector embeddings for semantic search
     embeddings vector(1536), -- OpenAI ada-002 dimension for product similarity
@@ -39,12 +41,14 @@ CREATE TABLE IF NOT EXISTS products (
     -- Constraints
     CONSTRAINT check_price CHECK (price >= 0),
     CONSTRAINT check_star_rating CHECK (star_rating >= 0 AND star_rating <= 5),
-    CONSTRAINT check_num_ratings CHECK (num_ratings >= 0)
+    CONSTRAINT check_num_ratings CHECK (num_ratings >= 0),
+    CONSTRAINT check_review_count CHECK (review_count >= 0)
 );
 
 -- Indexes for products
 CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand);
 CREATE INDEX IF NOT EXISTS idx_products_star_rating ON products(star_rating);
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_embeddings ON products USING ivfflat(embeddings vector_cosine_ops) WITH (lists = 100);
 CREATE INDEX IF NOT EXISTS idx_products_is_mock ON products(is_mock);
 
@@ -58,7 +62,9 @@ COMMENT ON COLUMN products.description IS 'Product description (from product_des
 COMMENT ON COLUMN products.photos IS 'Array of image URLs (from product_photos field)';
 COMMENT ON COLUMN products.price IS 'Current product price in USD (from product_price field)';
 COMMENT ON COLUMN products.star_rating IS 'Average star rating 1-5 (from product_star_rating field)';
-COMMENT ON COLUMN products.num_ratings IS 'Total number of ratings/reviews (from product_num_ratings field)';
+COMMENT ON COLUMN products.num_ratings IS 'Total number of ratings/reviews from RapidAPI (product_num_ratings field)';
+COMMENT ON COLUMN products.review_count IS 'Actual count of reviews in our database (auto-updated by trigger_update_review_count)';
+COMMENT ON COLUMN products.category IS 'Product category detected by MOCK_PDT_MINI_AGENT (electronics, clothing, home, etc.)';
 COMMENT ON COLUMN products.embeddings IS 'Vector embeddings for semantic product similarity search';
 COMMENT ON COLUMN products.is_mock IS 'false = main product from form/RapidAPI, true = generated similar product by MOCK_PDT_MINI_AGENT';
 
@@ -433,3 +439,47 @@ END $$;
 
 -- Add comment
 COMMENT ON COLUMN survey_sessions.conversation_history IS 'Stores conversation messages between agent and user during survey';
+
+
+-- Function for vector similarity search on products
+-- Used by Agent 1 to find similar products
+
+CREATE OR REPLACE FUNCTION match_products(
+  query_embedding vector(1536),
+  match_threshold float DEFAULT 0.7,
+  match_count int DEFAULT 5
+)
+RETURNS TABLE (
+  item_id varchar,
+  product_url text,
+  title text,
+  brand varchar,
+  category varchar,
+  price numeric,
+  description text,
+  embeddings vector(1536),
+  similarity float
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    p.item_id,
+    p.product_url,
+    p.title,
+    p.brand,
+    p.category,
+    p.price,
+    p.description,
+    p.embeddings,
+    1 - (p.embeddings <=> query_embedding) AS similarity
+  FROM products p
+  WHERE 1 - (p.embeddings <=> query_embedding) > match_threshold
+  ORDER BY p.embeddings <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
+
+-- Add comment
+COMMENT ON FUNCTION match_products IS 'Find similar products using cosine similarity on embeddings';

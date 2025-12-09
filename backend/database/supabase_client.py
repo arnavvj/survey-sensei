@@ -88,6 +88,42 @@ class SupabaseDB:
 
         return products_with_reviews
 
+    # ============================================================================
+    # CLEANUP OPERATIONS
+    # ============================================================================
+
+    def cleanup_mock_data(self) -> Dict[str, int]:
+        """
+        Delete all mock data from database (for clean testing between runs)
+
+        Returns:
+            Dictionary with counts of deleted records per table
+        """
+        deleted_counts = {}
+
+        try:
+            # Delete in reverse order of dependencies (reviews → transactions → users → products)
+            reviews_resp = self.client.table("reviews").delete().eq("is_mock", True).execute()
+            deleted_counts['reviews'] = len(reviews_resp.data) if reviews_resp.data else 0
+
+            txn_resp = self.client.table("transactions").delete().eq("is_mock", True).execute()
+            deleted_counts['transactions'] = len(txn_resp.data) if txn_resp.data else 0
+
+            users_resp = self.client.table("users").delete().eq("is_mock", True).execute()
+            deleted_counts['users'] = len(users_resp.data) if users_resp.data else 0
+
+            products_resp = self.client.table("products").delete().eq("is_mock", True).execute()
+            deleted_counts['products'] = len(products_resp.data) if products_resp.data else 0
+
+        except Exception as e:
+            print(f"Warning during cleanup: {str(e)}")
+
+        return deleted_counts
+
+    # ============================================================================
+    # PRODUCTS OPERATIONS
+    # ============================================================================
+
     def insert_products_batch(self, products: List[Dict[str, Any]]) -> int:
         """
         Batch insert/upsert products into database
@@ -169,7 +205,7 @@ class SupabaseDB:
         try:
             response = self.client.table("users").upsert(
                 users,
-                on_conflict="user_id"
+                on_conflict="email_id"  # Use email_id since it has UNIQUE constraint
             ).execute()
             return len(users)
         except Exception as e:
@@ -275,8 +311,12 @@ class SupabaseDB:
         from datetime import datetime, timedelta
         import uuid
 
+        # Fetch product price from database for the survey transaction
+        product_response = self.client.table("products").select("price").eq("item_id", item_id).execute()
+        product_price = product_response.data[0]["price"] if product_response.data else 99.99
+
         # Create a placeholder transaction for this survey session
-        # This represents the survey flow, not an actual purchase yet
+        # Use actual product price for the survey transaction
         order_date = datetime.now()
         transaction_data = {
             "transaction_id": str(uuid.uuid4()),
@@ -284,8 +324,8 @@ class SupabaseDB:
             "item_id": item_id,
             "order_date": order_date.isoformat(),
             "expected_delivery_date": (order_date + timedelta(days=5)).isoformat(),
-            "original_price": 0.00,  # Placeholder - survey not tied to actual purchase
-            "retail_price": 0.00,
+            "original_price": float(product_price),  # Use actual product price
+            "retail_price": float(product_price),  # Same as original (no discount for survey)
             "transaction_status": "survey_pending",  # Special status for survey flows
         }
 

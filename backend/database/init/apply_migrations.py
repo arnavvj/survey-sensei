@@ -46,25 +46,38 @@ def main():
     print("="*70 + "\n")
 
     migrations_dir = Path(__file__).parent.parent / "migrations"
+    functions_dir = Path(__file__).parent.parent / "functions"
 
     if not migrations_dir.exists():
         print(f"ERROR: Migrations directory not found: {migrations_dir}")
         return 1
 
-    # Get all SQL files except the combined one (to avoid recursion)
-    sql_files = sorted([
+    # Get all SQL files from migrations directory (except the combined one)
+    migration_files = sorted([
         f for f in migrations_dir.glob("*.sql")
         if f.name != "_combined_migrations.sql"
     ])
 
+    # Get all SQL files from functions directory
+    function_files = sorted(functions_dir.glob("*.sql")) if functions_dir.exists() else []
+
+    # Combine migrations and functions (migrations first, then functions)
+    sql_files = migration_files + function_files
+
     if not sql_files:
-        print("WARNING: No migration files found")
+        print("WARNING: No migration or function files found")
         return 0
 
-    print(f"Found {len(sql_files)} migration file(s):\n")
+    print(f"Found {len(migration_files)} migration file(s) and {len(function_files)} function file(s):\n")
 
-    for i, sql_file in enumerate(sql_files, 1):
-        print(f"{i}. {sql_file.name}")
+    print("Migrations:")
+    for i, sql_file in enumerate(migration_files, 1):
+        print(f"  {i}. {sql_file.name}")
+
+    if function_files:
+        print("\nFunctions:")
+        for i, sql_file in enumerate(function_files, 1):
+            print(f"  {i}. {sql_file.name}")
 
     print("\n" + "="*70)
     print("  Migration Contents")
