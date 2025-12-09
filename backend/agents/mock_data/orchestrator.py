@@ -138,6 +138,20 @@ class MockDataOrchestrator:
 
         # Return complete dataset
         # main_user is the first user in all_users (generated in generate_users function)
+        main_user_id = all_users[0]['user_id']
+        main_product_id = main_product['item_id']
+
+        # Calculate granular statistics
+        # Main Product Stats
+        main_product_transactions = [t for t in transactions if t['item_id'] == main_product_id]
+        main_product_reviews = [r for r in reviews if r['item_id'] == main_product_id]
+        main_product_users = len(set(t['user_id'] for t in main_product_transactions))
+
+        # Main User Stats
+        main_user_transactions = [t for t in transactions if t['user_id'] == main_user_id]
+        main_user_reviews = [r for r in reviews if r['user_id'] == main_user_id]
+        main_user_products = len(set(t['item_id'] for t in main_user_transactions))
+
         result = {
             'products': all_products,
             'users': all_users,
@@ -145,12 +159,24 @@ class MockDataOrchestrator:
             'reviews': reviews,
             'metadata': {
                 'scenario': scenario_config.get('scenario_id'),
+
+                # Overall ecosystem stats
                 'product_count': len(all_products),
                 'user_count': len(all_users),
                 'transaction_count': len(transactions),
                 'review_count': len(reviews),
-                'main_product_id': main_product['item_id'],
-                'main_user_id': all_users[0]['user_id'],  # First user is main_user
+
+                # Main product stats
+                'main_product_id': main_product_id,
+                'main_product_transactions': len(main_product_transactions),
+                'main_product_reviews': len(main_product_reviews),
+                'main_product_users': main_product_users,  # Unique users who purchased
+
+                # Main user stats
+                'main_user_id': main_user_id,
+                'main_user_transactions': len(main_user_transactions),
+                'main_user_reviews': len(main_user_reviews),
+                'main_user_products': main_user_products,  # Unique products purchased
             }
         }
 

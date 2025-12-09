@@ -69,10 +69,22 @@ export interface FormData {
 }
 
 export interface MockDataSummary {
+  // Overall ecosystem stats
   products: number
   users: number
   transactions: number
   reviews: number
+
+  // Main product granular stats
+  mainProductTransactions?: number
+  mainProductReviews?: number
+  mainProductUsers?: number
+
+  // Main user granular stats
+  mainUserTransactions?: number
+  mainUserReviews?: number
+  mainUserProducts?: number
+
   scenario: string  // Scenario code (e.g., "A1", "B1", "C2")
   scenarioDescription?: string  // Human-readable description (e.g., "Warm Product / Warm User")
   coldStart: {

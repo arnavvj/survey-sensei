@@ -118,23 +118,72 @@ export function SubmissionSummary({ productData, mockDataSummary, formData }: Pr
 
       {/* Mock Data Statistics */}
       <section className="card mb-8">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-4">Generated Mock Data</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-            <p className="text-sm text-blue-600 font-medium mb-1">Products</p>
-            <p className="text-3xl font-bold text-blue-900">{mockDataSummary.products}</p>
+        <h2 className="text-2xl font-semibold text-gray-900 mb-4">Generated Mock Data Summary</h2>
+
+        {/* Overall Ecosystem Stats */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">Complete Ecosystem</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <p className="text-sm text-blue-600 font-medium mb-1">Products</p>
+              <p className="text-3xl font-bold text-blue-900">{mockDataSummary.products}</p>
+            </div>
+            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <p className="text-sm text-green-600 font-medium mb-1">Users</p>
+              <p className="text-3xl font-bold text-green-900">{mockDataSummary.users}</p>
+            </div>
+            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+              <p className="text-sm text-purple-600 font-medium mb-1">Transactions</p>
+              <p className="text-3xl font-bold text-purple-900">{mockDataSummary.transactions}</p>
+            </div>
+            <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+              <p className="text-sm text-orange-600 font-medium mb-1">Reviews</p>
+              <p className="text-3xl font-bold text-orange-900">{mockDataSummary.reviews}</p>
+            </div>
           </div>
-          <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-            <p className="text-sm text-green-600 font-medium mb-1">Users</p>
-            <p className="text-3xl font-bold text-green-900">{mockDataSummary.users}</p>
+        </div>
+
+        {/* Main Product Stats */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">Main Product Activity</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-200">
+              <p className="text-sm text-indigo-600 font-medium mb-1">Purchases</p>
+              <p className="text-3xl font-bold text-indigo-900">{mockDataSummary.mainProductTransactions || 0}</p>
+              <p className="text-xs text-indigo-600 mt-1">transactions</p>
+            </div>
+            <div className="bg-pink-50 rounded-lg p-4 border border-pink-200">
+              <p className="text-sm text-pink-600 font-medium mb-1">Reviews</p>
+              <p className="text-3xl font-bold text-pink-900">{mockDataSummary.mainProductReviews || 0}</p>
+              <p className="text-xs text-pink-600 mt-1">customer reviews</p>
+            </div>
+            <div className="bg-cyan-50 rounded-lg p-4 border border-cyan-200">
+              <p className="text-sm text-cyan-600 font-medium mb-1">Unique Buyers</p>
+              <p className="text-3xl font-bold text-cyan-900">{mockDataSummary.mainProductUsers || 0}</p>
+              <p className="text-xs text-cyan-600 mt-1">different users</p>
+            </div>
           </div>
-          <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-            <p className="text-sm text-purple-600 font-medium mb-1">Transactions</p>
-            <p className="text-3xl font-bold text-purple-900">{mockDataSummary.transactions}</p>
-          </div>
-          <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-            <p className="text-sm text-orange-600 font-medium mb-1">Reviews</p>
-            <p className="text-3xl font-bold text-orange-900">{mockDataSummary.reviews}</p>
+        </div>
+
+        {/* Main User Stats */}
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">Main User Activity</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-teal-50 rounded-lg p-4 border border-teal-200">
+              <p className="text-sm text-teal-600 font-medium mb-1">Purchases</p>
+              <p className="text-3xl font-bold text-teal-900">{mockDataSummary.mainUserTransactions || 0}</p>
+              <p className="text-xs text-teal-600 mt-1">transactions</p>
+            </div>
+            <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
+              <p className="text-sm text-amber-600 font-medium mb-1">Reviews Written</p>
+              <p className="text-3xl font-bold text-amber-900">{mockDataSummary.mainUserReviews || 0}</p>
+              <p className="text-xs text-amber-600 mt-1">reviews posted</p>
+            </div>
+            <div className="bg-rose-50 rounded-lg p-4 border border-rose-200">
+              <p className="text-sm text-rose-600 font-medium mb-1">Products Bought</p>
+              <p className="text-3xl font-bold text-rose-900">{mockDataSummary.mainUserProducts || 0}</p>
+              <p className="text-xs text-rose-600 mt-1">unique products</p>
+            </div>
           </div>
         </div>
 

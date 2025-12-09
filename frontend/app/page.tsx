@@ -928,10 +928,23 @@ export default function HomePage() {
       const summary: MockDataSummary = {
         mainProductId: data.main_product_id,
         mainUserId: data.main_user_id,
-        products: data.metadata.total_products || 0,
-        users: data.metadata.total_users || 0,
-        transactions: data.metadata.total_transactions || 0,
-        reviews: data.metadata.total_reviews || 0,
+
+        // Overall ecosystem stats
+        products: data.metadata.product_count || 0,
+        users: data.metadata.user_count || 0,
+        transactions: data.metadata.transaction_count || 0,
+        reviews: data.metadata.review_count || 0,
+
+        // Main product granular stats
+        mainProductTransactions: data.metadata.main_product_transactions || 0,
+        mainProductReviews: data.metadata.main_product_reviews || 0,
+        mainProductUsers: data.metadata.main_product_users || 0,
+
+        // Main user granular stats
+        mainUserTransactions: data.metadata.main_user_transactions || 0,
+        mainUserReviews: data.metadata.main_user_reviews || 0,
+        mainUserProducts: data.metadata.main_user_products || 0,
+
         scenario: scenarioCode,
         scenarioDescription: scenarioDescription,
         coldStart: {
