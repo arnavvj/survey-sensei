@@ -1,11 +1,16 @@
 """
 RapidAPI Client for Real-Time Amazon Data API
 Fetches product details and reviews for mock data generation
+With file-based caching to avoid redundant API calls
 """
 
 import logging
 import time
+import json
+import hashlib
+from pathlib import Path
 from typing import Dict, Any, List, Optional
+from datetime import datetime, timedelta
 import requests
 from config import settings
 
@@ -19,8 +24,14 @@ class RapidAPIClient:
     Handles product details and review fetching with retry logic
     """
 
-    def __init__(self):
-        """Initialize RapidAPI client with configuration"""
+    def __init__(self, cache_dir: str = ".rapidapi_cache", cache_ttl_hours: int = 168):
+        """
+        Initialize RapidAPI client with configuration and caching
+
+        Args:
+            cache_dir: Directory to store cached responses
+            cache_ttl_hours: Cache time-to-live in hours (default: 7 days)
+        """
         self.base_url = "https://real-time-amazon-data.p.rapidapi.com"
         self.api_key = getattr(settings, 'rapidapi_key', None)
         self.headers = {
@@ -29,6 +40,61 @@ class RapidAPIClient:
         }
         self.max_retries = 3
         self.retry_delay = 1  # seconds
+
+        # Cache configuration
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_ttl = timedelta(hours=cache_ttl_hours)
+
+    def _get_cache_key(self, **params) -> str:
+        """Generate cache key from parameters"""
+        sorted_params = json.dumps(params, sort_keys=True)
+        return hashlib.md5(sorted_params.encode()).hexdigest()
+
+    def _get_cache_path(self, cache_key: str) -> Path:
+        """Get file path for cache key"""
+        return self.cache_dir / f"{cache_key}.json"
+
+    def _get_cached_data(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        """Retrieve cached data if valid"""
+        cache_path = self._get_cache_path(cache_key)
+
+        if not cache_path.exists():
+            return None
+
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+
+            # Check TTL
+            cached_at = datetime.fromisoformat(cache_data['cached_at'])
+            if datetime.now() - cached_at > self.cache_ttl:
+                logger.info(f"Cache expired for key: {cache_key}")
+                cache_path.unlink()  # Delete expired cache
+                return None
+
+            logger.info(f"✅ Cache hit for RapidAPI request: {cache_key[:8]}...")
+            return cache_data['data']
+
+        except Exception as e:
+            logger.warning(f"Failed to read cache: {e}")
+            return None
+
+    def _save_to_cache(self, cache_key: str, data: Dict[str, Any]) -> None:
+        """Save data to cache"""
+        cache_path = self._get_cache_path(cache_key)
+
+        cache_entry = {
+            'cached_at': datetime.now().isoformat(),
+            'data': data
+        }
+
+        try:
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache_entry, f, indent=2)
+            logger.info(f"💾 Cached RapidAPI response: {cache_key[:8]}...")
+        except Exception as e:
+            logger.warning(f"Failed to write cache: {e}")
 
     def _make_request(
         self,
@@ -90,7 +156,7 @@ class RapidAPIClient:
 
     def fetch_product_details(self, asin: str, country: str = "US") -> Optional[Dict[str, Any]]:
         """
-        Fetch product details by ASIN
+        Fetch product details by ASIN (with caching)
 
         Args:
             asin: Amazon Standard Identification Number
@@ -110,6 +176,12 @@ class RapidAPIClient:
                 - category
         """
         try:
+            # Check cache first
+            cache_key = self._get_cache_key(endpoint="product-details", asin=asin, country=country)
+            cached_product = self._get_cached_data(cache_key)
+            if cached_product:
+                return cached_product
+
             endpoint = "/product-details"
             params = {
                 "asin": asin,
@@ -141,6 +213,10 @@ class RapidAPIClient:
             }
 
             logger.info(f"Successfully fetched product: {product['title']}")
+
+            # Save to cache
+            self._save_to_cache(cache_key, product)
+
             return product
 
         except Exception as e:
@@ -154,7 +230,7 @@ class RapidAPIClient:
         max_pages: int = 2
     ) -> List[Dict[str, Any]]:
         """
-        Fetch product reviews by ASIN
+        Fetch product reviews by ASIN (with caching)
 
         Args:
             asin: Amazon Standard Identification Number
@@ -171,6 +247,12 @@ class RapidAPIClient:
                 - verified_purchase
         """
         try:
+            # Check cache first
+            cache_key = self._get_cache_key(endpoint="product-reviews", asin=asin, country=country, max_pages=max_pages)
+            cached_reviews = self._get_cached_data(cache_key)
+            if cached_reviews:
+                return cached_reviews
+
             endpoint = "/product-reviews"
             all_reviews = []
 
@@ -211,6 +293,10 @@ class RapidAPIClient:
                     time.sleep(0.5)
 
             logger.info(f"Successfully fetched {len(all_reviews)} total reviews for {asin}")
+
+            # Save to cache
+            self._save_to_cache(cache_key, all_reviews)
+
             return all_reviews
 
         except Exception as e:
