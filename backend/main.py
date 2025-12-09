@@ -106,6 +106,16 @@ class HealthResponse(BaseModel):
     environment: str
 
 
+class ProductPreviewRequest(BaseModel):
+    asin: str
+
+
+class ProductPreviewResponse(BaseModel):
+    success: bool
+    product: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
 @app.get("/", response_model=HealthResponse)
 async def root():
     return {
@@ -122,6 +132,45 @@ async def health_check():
         "version": "2.0.0",
         "environment": settings.environment,
     }
+
+
+@app.post("/api/product/preview", response_model=ProductPreviewResponse)
+async def preview_product(request: ProductPreviewRequest):
+    """
+    Preview product details from RapidAPI (for form UI display)
+    This endpoint is called when user pastes Amazon URL to show product info
+
+    Optimized flow:
+    1. User pastes URL → Frontend extracts ASIN
+    2. Frontend calls this endpoint → RapidAPI fetch (cached for 7 days)
+    3. User fills form and submits → Backend reuses cached product data
+
+    Total RapidAPI calls: 1 for product + 1 for reviews = 2 calls per submission
+    """
+    try:
+        logger.info(f"📦 Product preview requested for ASIN: {request.asin}")
+        rapidapi_client = RapidAPIClient()
+
+        product = rapidapi_client.fetch_product_details(request.asin)
+
+        if not product:
+            return ProductPreviewResponse(
+                success=False,
+                error=f"Product not found or RapidAPI error for ASIN: {request.asin}"
+            )
+
+        logger.info(f"✅ Product preview successful: {product['title']}")
+        return ProductPreviewResponse(
+            success=True,
+            product=product
+        )
+
+    except Exception as e:
+        logger.error(f"Error in product preview: {str(e)}")
+        return ProductPreviewResponse(
+            success=False,
+            error=str(e)
+        )
 
 
 @app.post("/api/survey/start", response_model=StartSurveyResponse)
@@ -175,7 +224,15 @@ async def start_survey(request: StartSurveyRequest):
         )
         logger.info(f"✅ Generated mock data: {mock_data['metadata']}")
 
-        # STEP 4: Insert data into database
+        # STEP 4: Clean up old mock data (for clean testing)
+        logger.info("🧹 Cleaning up old mock data from previous test runs...")
+        try:
+            deleted_counts = db.cleanup_mock_data()
+            logger.info(f"✅ Cleanup complete: {deleted_counts}")
+        except Exception as e:
+            logger.warning(f"⚠️  Cleanup warning (non-fatal): {str(e)}")
+
+        # STEP 5: Insert new mock data into database
         logger.info("🗄️  Inserting generated data into database...")
         db.insert_products_batch(mock_data['products'])
         db.insert_users_batch(mock_data['users'])
@@ -183,7 +240,7 @@ async def start_survey(request: StartSurveyRequest):
         db.insert_reviews_batch(mock_data['reviews'])
         logger.info("✅ Database insertion complete")
 
-        # STEP 5: Start survey with main user and main product
+        # STEP 6: Start survey with main user and main product
         main_user_id = mock_data['metadata']['main_user_id']
         main_product_id = mock_data['metadata']['main_product_id']
 

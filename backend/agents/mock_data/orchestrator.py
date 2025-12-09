@@ -137,6 +137,7 @@ class MockDataOrchestrator:
         logger.info(f"✅ Total reviews generated: {len(reviews)}")
 
         # Return complete dataset
+        # main_user is the first user in all_users (generated in generate_users function)
         result = {
             'products': all_products,
             'users': all_users,
@@ -149,7 +150,7 @@ class MockDataOrchestrator:
                 'transaction_count': len(transactions),
                 'review_count': len(reviews),
                 'main_product_id': main_product['item_id'],
-                'main_user_id': main_user['user_id'],
+                'main_user_id': all_users[0]['user_id'],  # First user is main_user
             }
         }
 
