@@ -906,23 +906,66 @@ export default function HomePage() {
 
       const data = await response.json()
 
-      // Determine scenario based on form data
-      const isWarmProduct = formData.hasMainProductReviews === 'yes'
-      const isWarmUser = formData.userPurchasedSimilar === 'yes' || formData.userReviewedSimilar === 'yes'
+      // Determine scenario based on form data following the corrected decision tree
+      const hasMainProductReviews = formData.hasMainProductReviews === 'yes'
+      const hasSimilarProductsReviews = formData.hasSimilarProductsReviews === 'yes'
+      const userPurchasedSimilar = formData.userPurchasedSimilar === 'yes'
+      const userPurchasedExact = formData.userPurchasedExact === 'yes'
+      const userReviewedSimilar = formData.userReviewedSimilar === 'yes'
+      const userReviewedExact = formData.userReviewedExact === 'yes'
 
-      let scenarioCode = 'C2' // Default: Cold/Cold
-      let scenarioDescription = 'Cold Product / Cold User'
+      let scenarioCode = 'B2'
+      let scenarioDescription = 'Cold Product / Cold User (COLDEST)'
 
-      if (isWarmProduct && isWarmUser) {
-        scenarioCode = 'A1'
-        scenarioDescription = 'Warm Product / Warm User'
-      } else if (!isWarmProduct && isWarmUser) {
-        scenarioCode = 'B1'
-        scenarioDescription = 'Cold Product / Warm User'
-      } else if (isWarmProduct && !isWarmUser) {
-        scenarioCode = 'A2'
-        scenarioDescription = 'Warm Product / Cold User'
+      if (hasMainProductReviews) {
+        // Warm Product path
+        if (userPurchasedSimilar) {
+          if (userPurchasedExact) {
+            if (userReviewedExact) {
+              scenarioCode = 'A2'
+              scenarioDescription = 'Warm-Warm-Warm: User purchased AND reviewed this exact product (HOTTEST)'
+            } else {
+              scenarioCode = 'A1'
+              scenarioDescription = 'Warm-Warm-Lukewarm: User bought this product but never reviewed it'
+            }
+          } else {
+            scenarioCode = 'A1'
+            scenarioDescription = 'Warm-Warm-Cool: User bought similar products but not this exact one'
+          }
+        } else {
+          scenarioCode = 'B2'
+          scenarioDescription = 'Warm Product / Cold User: First time buying this category'
+        }
+      } else {
+        // Cold Product path
+        if (hasSimilarProductsReviews) {
+          if (userPurchasedSimilar) {
+            if (userReviewedSimilar) {
+              scenarioCode = 'C1'
+              scenarioDescription = 'Cold Product / Warm Community / Lukewarm User: User reviewed similar products'
+            } else {
+              scenarioCode = 'C2'
+              scenarioDescription = 'Cold Product / Warm Community / Cold Experience: User bought similar but never reviewed'
+            }
+          } else {
+            scenarioCode = 'B2'
+            scenarioDescription = 'Cold Product / Warm Community / Cold User'
+          }
+        } else {
+          // No similar product reviews
+          if (userPurchasedSimilar) {
+            scenarioCode = 'B1'
+            scenarioDescription = 'Cold Product Community / Lukewarm User: User has purchase history but no reviews anywhere'
+          } else {
+            scenarioCode = 'B2'
+            scenarioDescription = 'Cold Product Community / Cold User (COLDEST)'
+          }
+        }
       }
+
+      // Cold start flags
+      const isWarmProduct = hasMainProductReviews
+      const isWarmUser = userPurchasedSimilar || userReviewedSimilar
 
       // Create summary with REAL data from backend metadata
       const summary: MockDataSummary = {
