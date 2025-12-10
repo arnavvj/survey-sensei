@@ -59,6 +59,13 @@ class MockDataOrchestrator:
         logger.info("📦 STEP 1: Initializing products and users")
 
         # 1.a: Initialize product_df with main product
+        # Generate embeddings for main product (from RapidAPI)
+        enable_embeddings = scenario_config.get('generate_embeddings', True)  # Default: True
+        if enable_embeddings:
+            embedding_text = self.pdt_agent.build_product_embedding_text(main_product)
+            main_product['embeddings'] = self.pdt_agent.generate_single_embedding(embedding_text)
+            logger.info(f"✅ Generated embeddings for main product: {main_product['title'][:50]}")
+
         all_products = [main_product]
 
         # 1.b: Generate and append mock similar products
@@ -66,7 +73,7 @@ class MockDataOrchestrator:
             main_product=main_product,
             count=scenario_config.get('similar_product_count', 5),
             use_cache=self.use_cache,
-            generate_embeddings=scenario_config.get('generate_embeddings', False)
+            generate_embeddings=enable_embeddings
         )
         all_products.extend(similar_products)
 
@@ -74,13 +81,17 @@ class MockDataOrchestrator:
         diverse_product_count = scenario_config.get('diverse_product_count', 3)
         diverse_products = self.pdt_agent.generate_diverse_products(
             count=diverse_product_count,
-            use_cache=self.use_cache
+            use_cache=self.use_cache,
+            generate_embeddings=enable_embeddings
         )
         all_products.extend(diverse_products)
         logger.info(f"✅ Products: 1 main + {len(similar_products)} similar + {len(diverse_products)} diverse = {len(all_products)} total")
 
         # 1.c: Initialize user_df with main user
-        main_user = self.usr_agent.generate_main_user(form_data)
+        main_user = self.usr_agent.generate_main_user(
+            form_data,
+            generate_embeddings=enable_embeddings
+        )
         all_users = [main_user]
 
         # 1.d: Calculate realistic user count based on expected reviews
@@ -98,7 +109,8 @@ class MockDataOrchestrator:
         # Generate and append mock users
         mock_users = self.usr_agent.generate_mock_users(
             main_user=main_user,
-            count=calculated_user_count
+            count=calculated_user_count,
+            generate_embeddings=enable_embeddings
         )
         all_users.extend(mock_users)
         logger.info(f"✅ Users: 1 main + {len(mock_users)} mock = {len(all_users)} total (calculated for realistic sparsity)")
@@ -131,7 +143,8 @@ class MockDataOrchestrator:
                 api_review_objects = self.rvw_agent.convert_api_reviews_to_db_format(
                     api_reviews=api_reviews,
                     transactions=api_transactions,
-                    main_product=main_product
+                    main_product=main_product,
+                    generate_embeddings=enable_embeddings
                 )
                 reviews.extend(api_review_objects)
                 logger.info(f"✅ Added {len(api_review_objects)} original scraped reviews")
@@ -143,7 +156,8 @@ class MockDataOrchestrator:
                 mock_users=mock_users,
                 existing_reviews=reviews,
                 sentiment_spread=sentiment_spread,
-                target_total=scenario_config.get('main_product_reviews', 100)
+                target_total=scenario_config.get('main_product_reviews', 100),
+                generate_embeddings=enable_embeddings
             )
             reviews.extend(additional_reviews)
             transactions.extend(additional_transactions)
@@ -190,6 +204,7 @@ class MockDataOrchestrator:
             # Generate reviews for mock products (random distribution)
             similar_reviews, similar_transactions = self.rvw_agent.generate_reviews_for_similar_products(
                 similar_products=similar_products,
+                generate_embeddings=enable_embeddings,
                 mock_users=mock_users,
                 reviews_per_product=scenario_config.get('similar_product_reviews', 20)
             )
@@ -243,7 +258,8 @@ class MockDataOrchestrator:
                 main_user_similar_reviews, main_user_similar_txns = self.rvw_agent.generate_main_user_similar_reviews(
                     main_user=main_user,
                     similar_products=similar_products,
-                    count=random.randint(2, 4)  # 2-4 reviews
+                    count=random.randint(2, 4),  # 2-4 reviews
+                    generate_embeddings=enable_embeddings
                 )
                 reviews.extend(main_user_similar_reviews)
                 transactions.extend(main_user_similar_txns)
@@ -295,7 +311,8 @@ class MockDataOrchestrator:
                     exact_review = self.rvw_agent.generate_main_user_exact_review(
                         main_user=main_user,
                         main_product=main_product,
-                        transaction=exact_txn
+                        transaction=exact_txn,
+                        generate_embeddings=enable_embeddings
                     )
                     reviews.append(exact_review)
                     logger.info(f"✅ Added main user review for exact product")

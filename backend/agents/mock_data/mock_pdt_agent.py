@@ -156,8 +156,9 @@ Generate diverse, realistic variations of the SAME product type."""
             product['category'] = category  # Use category detected earlier
 
             # Generate embeddings if requested
+            # Uses fields: item_id, title, brand, description, star_rating, num_ratings, category, price
             if generate_embeddings:
-                embedding_text = f"{product['title']} {product.get('description', '')}"
+                embedding_text = self.build_product_embedding_text(product)
                 product['embeddings'] = self.generate_single_embedding(embedding_text)
             else:
                 product['embeddings'] = None
@@ -178,7 +179,8 @@ Generate diverse, realistic variations of the SAME product type."""
     def generate_diverse_products(
         self,
         count: int = 3,
-        use_cache: bool = True
+        use_cache: bool = True,
+        generate_embeddings: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Generate completely different products for organic ecosystem diversity
@@ -259,7 +261,13 @@ CRITICAL: Each product must be from a COMPLETELY DIFFERENT category. Create orga
             product['product_url'] = f"https://amazon.com/dp/{product['item_id']}"
             product['photos'] = self._generate_placeholder_photos()
             # category already set by LLM
-            product['embeddings'] = None
+
+            # Generate embeddings if requested
+            if generate_embeddings:
+                embedding_text = self.build_product_embedding_text(product)
+                product['embeddings'] = self.generate_single_embedding(embedding_text)
+            else:
+                product['embeddings'] = None
 
         products = products[:count]
 

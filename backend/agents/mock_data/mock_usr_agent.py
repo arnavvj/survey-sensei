@@ -18,7 +18,8 @@ class MockUserAgent(BaseMockAgent):
 
     def generate_main_user(
         self,
-        form_data: Dict[str, Any]
+        form_data: Dict[str, Any],
+        generate_embeddings: bool = False
     ) -> Dict[str, Any]:
         """
         Generate main user persona from form submission
@@ -47,17 +48,25 @@ class MockUserAgent(BaseMockAgent):
             'gender': form_data['userGender'],
             'is_mock': False,  # Real user from form
             'is_main_user': True,  # Flag for form submission user
-            'embeddings': None,  # Reserved for future use
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat(),
         }
+
+        # Generate embeddings if requested
+        # Uses fields: user_name, age, base_location, base_zip, gender
+        if generate_embeddings:
+            embedding_text = self.build_user_embedding_text(user)
+            user['embeddings'] = self.generate_single_embedding(embedding_text)
+        else:
+            user['embeddings'] = None
 
         return user
 
     def generate_mock_users(
         self,
-            main_user: Dict[str, Any],
-        count: int = 10
+        main_user: Dict[str, Any],
+        count: int = 10,
+        generate_embeddings: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Generate mock users with diverse demographics
@@ -149,8 +158,15 @@ Be creative with names (traditional, modern, multicultural mix). Vary email styl
             user['user_id'] = str(uuid.uuid4())
             user['is_mock'] = True
             user['is_main_user'] = False
-            user['embeddings'] = None
             user['created_at'] = datetime.now().isoformat()
             user['updated_at'] = datetime.now().isoformat()
+
+            # Generate embeddings if requested
+            # Uses fields: user_name, age, base_location, base_zip, gender
+            if generate_embeddings:
+                embedding_text = self.build_user_embedding_text(user)
+                user['embeddings'] = self.generate_single_embedding(embedding_text)
+            else:
+                user['embeddings'] = None
 
         return users[:count]

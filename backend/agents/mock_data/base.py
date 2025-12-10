@@ -151,3 +151,98 @@ class BaseMockAgent:
         """
         embeddings = self.generate_embeddings([text])
         return embeddings[0] if embeddings else None
+
+    # ============================================================================
+    # Entity-specific embedding text builders
+    # ============================================================================
+
+    def build_product_embedding_text(self, product: Dict[str, Any]) -> str:
+        """
+        Build rich text representation of product for embedding generation
+
+        Uses fields: item_id, title, brand, description, star_rating, num_ratings, category, price
+
+        Args:
+            product: Product dictionary
+
+        Returns:
+            Formatted text for embedding
+        """
+        parts = []
+
+        if product.get('item_id'):
+            parts.append(f"Product ID: {product['item_id']}")
+        if product.get('title'):
+            parts.append(f"Title: {product['title']}")
+        if product.get('brand'):
+            parts.append(f"Brand: {product['brand']}")
+        if product.get('description'):
+            parts.append(f"Description: {product['description']}")
+        if product.get('category'):
+            parts.append(f"Category: {product['category']}")
+        if product.get('price'):
+            parts.append(f"Price: ${product['price']:.2f}")
+        if product.get('star_rating'):
+            parts.append(f"Rating: {product['star_rating']}/5 stars")
+        if product.get('num_ratings'):
+            parts.append(f"Reviews: {product['num_ratings']}")
+
+        return " | ".join(parts)
+
+    def build_review_embedding_text(self, review: Dict[str, Any]) -> str:
+        """
+        Build rich text representation of review for embedding generation
+
+        Uses fields: item_id, user_id, transaction_id, timestamp, review_title, review_text, review_stars
+
+        Args:
+            review: Review dictionary
+
+        Returns:
+            Formatted text for embedding
+        """
+        parts = []
+
+        if review.get('item_id'):
+            parts.append(f"Product: {review['item_id']}")
+        if review.get('user_id'):
+            parts.append(f"User: {review['user_id']}")
+        if review.get('transaction_id'):
+            parts.append(f"Transaction: {review['transaction_id']}")
+        if review.get('timestamp'):
+            parts.append(f"Date: {review['timestamp']}")
+        if review.get('review_stars'):
+            parts.append(f"Rating: {review['review_stars']}/5 stars")
+        if review.get('review_title'):
+            parts.append(f"Title: {review['review_title']}")
+        if review.get('review_text'):
+            parts.append(f"Review: {review['review_text']}")
+
+        return " | ".join(parts)
+
+    def build_user_embedding_text(self, user: Dict[str, Any]) -> str:
+        """
+        Build rich text representation of user profile for embedding generation
+
+        Uses fields: user_name, age, base_location, base_zip, gender
+
+        Args:
+            user: User dictionary
+
+        Returns:
+            Formatted text for embedding
+        """
+        parts = []
+
+        if user.get('user_name'):
+            parts.append(f"Name: {user['user_name']}")
+        if user.get('age'):
+            parts.append(f"Age: {user['age']} years old")
+        if user.get('gender'):
+            parts.append(f"Gender: {user['gender']}")
+        if user.get('base_location'):
+            parts.append(f"Location: {user['base_location']}")
+        if user.get('base_zip'):
+            parts.append(f"ZIP: {user['base_zip']}")
+
+        return " | ".join(parts)
