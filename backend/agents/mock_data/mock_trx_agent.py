@@ -1,7 +1,7 @@
 """
 MOCK_TRX_MINI_AGENT - Transaction Mock Data Generator
-Generates realistic purchase transactions for simulation scenarios
-Uses simple rules-based logic (no LLM) to minimize costs
+Generates realistic purchase transactions following e-commerce sparsity patterns
+Uses deterministic rules (no LLM) to minimize costs
 """
 
 from typing import List, Dict, Any
@@ -13,96 +13,19 @@ from datetime import datetime, timedelta
 class MockTransactionAgent:
     """
     Generates mock transactions using deterministic rules
-    No LLM calls needed - saves costs while maintaining realism
+    Follows proper e-commerce data sparsity:
+    - Users purchase 10-35% of available products
+    - 40-50% of transactions have reviews
     """
-
-    def generate_transactions(
-        self,
-        scenario: Dict[str, Any],
-        users: List[Dict[str, Any]],
-        products: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """
-        Generate mock transactions based on simulation scenario
-
-        Args:
-            scenario: Scenario configuration with fields:
-                - productPurchased: 'exact' or 'similar'
-                - userPurchasedExact: 'YES' or 'NO'
-                - userPurchasedSimilar: 'YES' or 'NO'
-                - userReviewedExact: 'YES' or 'NO'
-                - userReviewedSimilar: 'YES' or 'NO'
-            users: List of user dictionaries (main + mock users)
-            products: List of product dictionaries (main + mock products)
-
-        Returns:
-            List of transaction dictionaries
-        """
-        transactions = []
-
-        # Find main user and main product
-        main_user = next(u for u in users if u.get('is_main_user'))
-        main_product = next(p for p in products if not p.get('is_mock'))
-
-        # Generate main user transaction if needed
-        if scenario['userPurchasedExact'] == 'YES':
-            trx = self._create_transaction(
-                user=main_user,
-                product=main_product,
-                days_ago=random.randint(30, 180)  # 1-6 months ago
-            )
-            transactions.append(trx)
-
-        # Generate main user similar product transactions if needed
-        if scenario['userPurchasedSimilar'] == 'YES':
-            similar_products = [p for p in products if p.get('is_mock')]
-            count = random.randint(1, 3)  # 1-3 similar product purchases
-            for product in random.sample(similar_products, min(count, len(similar_products))):
-                trx = self._create_transaction(
-                    user=main_user,
-                    product=product,
-                    days_ago=random.randint(60, 365)  # 2-12 months ago
-                )
-                transactions.append(trx)
-
-        # Generate mock user transactions for ecosystem
-        mock_users = [u for u in users if not u.get('is_main_user')]
-
-        # Ensure product has reviews (from mock users) if needed
-        if scenario['productPurchased'] == 'exact':
-            # Product cold/warm - generate transactions for main product
-            review_count = random.randint(10, 50) if scenario.get('has_reviews') else 0
-            for i in range(review_count):
-                user = random.choice(mock_users)
-                trx = self._create_transaction(
-                    user=user,
-                    product=main_product,
-                    days_ago=random.randint(30, 730)  # 1 month to 2 years
-                )
-                transactions.append(trx)
-
-        # Generate transactions for similar products (ecosystem)
-        similar_products = [p for p in products if p.get('is_mock')]
-        for product in similar_products:
-            trx_count = random.randint(5, 20)  # Each similar product has 5-20 transactions
-            for i in range(trx_count):
-                user = random.choice(mock_users)
-                trx = self._create_transaction(
-                    user=user,
-                    product=product,
-                    days_ago=random.randint(30, 730)
-                )
-                transactions.append(trx)
-
-        return transactions
 
     def _create_transaction(
         self,
         user: Dict[str, Any],
         product: Dict[str, Any],
-        days_ago: int
+        days_ago: int,
+        is_mock: bool = True
     ) -> Dict[str, Any]:
-        """Create a single transaction"""
+        """Create a single transaction with realistic details"""
         order_date = datetime.now() - timedelta(days=days_ago)
         delivery_date = order_date + timedelta(days=random.randint(2, 7))
         expected_delivery = order_date + timedelta(days=random.randint(3, 5))
@@ -138,9 +61,227 @@ class MockTransactionAgent:
             'original_price': round(original_price, 2),
             'retail_price': round(retail_price, 2),
             'transaction_status': status,
-            'is_mock': True,
+            'is_mock': is_mock,
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat(),
         }
 
         return transaction
+
+    # =========================================================================
+    # NEW METHODS FOR REDESIGNED ORCHESTRATOR WORKFLOW
+    # =========================================================================
+
+    def create_transactions_for_api_reviews(
+        self,
+        api_reviews: List[Dict[str, Any]],
+        main_product: Dict[str, Any],
+        mock_users: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Create transactions for original RapidAPI reviews
+        Each review needs a corresponding transaction
+
+        Args:
+            api_reviews: Reviews from RapidAPI
+            main_product: Main product dictionary
+            mock_users: List of mock users
+
+        Returns:
+            List of transactions (one per review)
+        """
+        transactions = []
+
+        for api_review in api_reviews:
+            # Assign random mock user to each scraped review
+            user = random.choice(mock_users)
+
+            # Create transaction
+            transaction = self._create_transaction(
+                user=user,
+                product=main_product,
+                days_ago=random.randint(30, 730),  # 1 month to 2 years ago
+                is_mock=True
+            )
+            transactions.append(transaction)
+
+        return transactions
+
+    def generate_additional_transactions(
+        self,
+        product: Dict[str, Any],
+        users: List[Dict[str, Any]],
+        existing_transactions: List[Dict[str, Any]],
+        multiplier: float = 1.5
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate additional transactions beyond those with reviews
+        Implements e-commerce sparsity: more transactions than reviews
+
+        Args:
+            product: Product dictionary
+            users: List of users
+            existing_transactions: Already created transactions
+            multiplier: How many more transactions than existing (e.g., 1.5 = 50% more)
+
+        Returns:
+            List of additional transactions
+        """
+        # Count existing transactions for this product
+        existing_count = len([t for t in existing_transactions if t['item_id'] == product['item_id']])
+
+        # Calculate how many additional to create
+        additional_count = int(existing_count * (multiplier - 1.0))
+
+        transactions = []
+        for _ in range(additional_count):
+            user = random.choice(users)
+            transaction = self._create_transaction(
+                user=user,
+                product=product,
+                days_ago=random.randint(30, 730)
+            )
+            transactions.append(transaction)
+
+        return transactions
+
+    def generate_main_user_similar_transactions(
+        self,
+        main_user: Dict[str, Any],
+        similar_products: List[Dict[str, Any]],
+        count: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate transactions for main user purchasing similar products
+        (without reviews)
+
+        Args:
+            main_user: Main user dictionary
+            similar_products: List of similar products
+            count: Number of transactions to create
+
+        Returns:
+            List of transactions
+        """
+        transactions = []
+
+        # Select random similar products
+        selected_products = random.sample(
+            similar_products,
+            min(count, len(similar_products))
+        )
+
+        for product in selected_products:
+            transaction = self._create_transaction(
+                user=main_user,
+                product=product,
+                days_ago=random.randint(60, 365),  # 2-12 months ago
+                is_mock=False  # Main user transaction
+            )
+            transactions.append(transaction)
+
+        return transactions
+
+    def generate_main_user_additional_transactions(
+        self,
+        main_user: Dict[str, Any],
+        similar_products: List[Dict[str, Any]],
+        existing_transactions: List[Dict[str, Any]],
+        additional_count: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate additional main user transactions
+        (purchases without reviews - more purchases than reviews)
+
+        Args:
+            main_user: Main user dictionary
+            similar_products: List of similar products
+            existing_transactions: Already created transactions
+            additional_count: How many more transactions to create
+
+        Returns:
+            List of additional transactions
+        """
+        transactions = []
+
+        # Find products main user hasn't purchased yet
+        main_user_product_ids = set(
+            t['item_id'] for t in existing_transactions
+            if t['user_id'] == main_user['user_id']
+        )
+
+        available_products = [
+            p for p in similar_products
+            if p['item_id'] not in main_user_product_ids
+        ]
+
+        if not available_products:
+            # If user purchased all products, allow duplicates
+            available_products = similar_products
+
+        # Select random products
+        selected_products = random.sample(
+            available_products,
+            min(additional_count, len(available_products))
+        )
+
+        for product in selected_products:
+            transaction = self._create_transaction(
+                user=main_user,
+                product=product,
+                days_ago=random.randint(60, 365),
+                is_mock=False
+            )
+            transactions.append(transaction)
+
+        return transactions
+
+    def create_main_user_exact_transaction(
+        self,
+        main_user: Dict[str, Any],
+        main_product: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create transaction for main user purchasing exact product
+
+        Args:
+            main_user: Main user dictionary
+            main_product: Main product dictionary
+
+        Returns:
+            Single transaction
+        """
+        return self._create_transaction(
+            user=main_user,
+            product=main_product,
+            days_ago=random.randint(30, 180),  # 1-6 months ago
+            is_mock=False
+        )
+
+    def create_transaction_for_review(
+        self,
+        user: Dict[str, Any],
+        product: Dict[str, Any],
+        days_ago: int = None
+    ) -> Dict[str, Any]:
+        """
+        Create a single transaction that will have a review
+        Helper method for review agent
+
+        Args:
+            user: User dictionary
+            product: Product dictionary
+            days_ago: How many days ago (optional, will randomize if not provided)
+
+        Returns:
+            Single transaction
+        """
+        if days_ago is None:
+            days_ago = random.randint(30, 730)
+
+        return self._create_transaction(
+            user=user,
+            product=product,
+            days_ago=days_ago,
+            is_mock=user.get('is_mock', True)
+        )
