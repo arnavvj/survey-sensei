@@ -63,22 +63,22 @@ class Logger {
     const style = LOG_STYLES[level];
     const categoryStyle = category ? CATEGORY_STYLES[category] : null;
 
-    // Build log parts
+    // Build log parts - simplified format
     const parts: string[] = [];
     const styles: string[] = [];
 
-    // Timestamp
+    // Timestamp (dimmed)
     parts.push('%c[%s]');
-    styles.push('color: #9CA3AF; font-weight: 300');
+    styles.push('color: #9CA3AF; font-size: 11px');
 
-    // Level emoji and label
-    parts.push(`%c${style.emoji} ${level.toUpperCase()}`);
+    // Level emoji only (no label for cleaner output)
+    parts.push(`%c${style.emoji}`);
     styles.push(`color: ${style.color}; font-weight: bold`);
 
-    // Category if provided
+    // Category emoji only if provided
     if (categoryStyle) {
-      parts.push(`%c${categoryStyle.emoji} [${category}]`);
-      styles.push(`color: ${categoryStyle.color}; font-weight: 600`);
+      parts.push(`%c${categoryStyle.emoji}`);
+      styles.push(`color: ${categoryStyle.color}`);
     }
 
     // Message
@@ -92,18 +92,23 @@ class Logger {
     // Output log
     if (level === 'error') {
       console.error(...args);
+      if (data !== undefined) {
+        console.error('  └─', data);
+      }
     } else if (level === 'warn') {
       console.warn(...args);
+      if (data !== undefined) {
+        console.warn('  └─', data);
+      }
     } else {
       console.log(...args);
-    }
-
-    // Output data if provided
-    if (data !== undefined) {
-      if (typeof data === 'object') {
-        console.log('  └─', data);
-      } else {
-        console.log('  └─', String(data));
+      // Only show data for info/debug if it's meaningful
+      if (data !== undefined && level !== 'success') {
+        if (typeof data === 'object' && Object.keys(data).length > 0) {
+          console.log('  └─', data);
+        } else if (typeof data !== 'object') {
+          console.log('  └─', String(data));
+        }
       }
     }
   }

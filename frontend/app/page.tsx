@@ -257,7 +257,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      logger.agent('Generating review options', { sessionId })
+      logger.agent('Generating review options')
       const response = await fetch('/api/reviews/generate', {
         method: 'POST',
         headers: {
@@ -275,7 +275,7 @@ export default function HomePage() {
       }
 
       const data = await response.json()
-      logger.success('Reviews generated successfully', { count: data.review_options?.length, sentiment: data.sentiment_band })
+      logger.success(`${data.review_options?.length} reviews generated`)
 
       setReviewOptions(data.review_options)
       setSentimentBand(data.sentiment_band)
@@ -300,7 +300,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      logger.agent('Regenerating review options', { sessionId: surveySession.session_id })
+      logger.agent('Regenerating review options')
       const response = await fetch('/api/reviews/regenerate', {
         method: 'POST',
         headers: {
@@ -318,7 +318,7 @@ export default function HomePage() {
       }
 
       const data = await response.json()
-      logger.success('Reviews regenerated successfully', { count: data.review_options?.length })
+      logger.success('Reviews refreshed')
 
       setReviewOptions(data.review_options)
       setSentimentBand(data.sentiment_band)
@@ -641,7 +641,7 @@ export default function HomePage() {
       })
       setIsReviewSubmitted(true)
 
-      logger.success('Review submitted successfully', { reviewIndex: selectedReviewIndex })
+      logger.success('Review submitted')
     } catch (error: any) {
       logger.apiError('Submit review', error)
       setSurveyError(error.message || 'Failed to submit review')
@@ -658,7 +658,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      logger.info('Loading question for edit', { sessionId: surveySession.session_id, questionNumber })
+      logger.info(`Loading question ${questionNumber} for edit`)
 
       const response = await fetch('/api/survey/get-for-edit', {
         method: 'POST',
@@ -677,7 +677,6 @@ export default function HomePage() {
       }
 
       const data = await response.json()
-      logger.success('Question loaded for edit', { questionNumber: data.question_number })
 
       // Save current question before entering edit mode
       if (surveySession.question) {

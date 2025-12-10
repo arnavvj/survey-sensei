@@ -41,25 +41,17 @@ async def log_requests(request: Request, call_next):
     """Log all API requests and responses with timing"""
     start_time = time.time()
 
-    # Log incoming request
-    logger.api_request(
-        method=request.method,
-        endpoint=request.url.path,
-        client=request.client.host if request.client else "unknown"
-    )
-
     # Process request
     response = await call_next(request)
 
     # Calculate duration
     duration_ms = (time.time() - start_time) * 1000
 
-    # Log response
-    logger.api_response(
-        status=response.status_code,
-        endpoint=request.url.path,
-        duration_ms=duration_ms
-    )
+    # Only log non-health check endpoints
+    if request.url.path not in ["/", "/health"]:
+        # Log request and response in one line
+        status_emoji = "✅" if response.status_code < 400 else "❌"
+        logger.info(f"{status_emoji} {request.method} {request.url.path} → {response.status_code} ({duration_ms:.0f}ms)")
 
     return response
 
@@ -233,37 +225,27 @@ async def generate_mock_data(request: GenerateMockDataRequest):
     5. Return metadata (counts, IDs) for Summary pane
     """
     try:
-        logger.separator("MOCK DATA GENERATION PIPELINE")
-        logger.info(f"User: {request.user_id} | Item: {request.item_id}")
+        logger.separator(f"Mock Data Generation: {request.item_id}")
 
         # STEP 1: Build scenario configuration
-        logger.step(1, "Building scenario configuration")
         scenario_config = build_scenario_config(request.form_data)
         logger.info(f"Scenario: {scenario_config['scenario_id']} ({scenario_config['group']})")
 
         # STEP 2: Fetch product details and reviews from RapidAPI
-        logger.step(2, "Fetching product details from RapidAPI")
         rapidapi_client = RapidAPIClient()
-
-        # Extract ASIN from request
         asin = request.item_id if request.item_id.startswith('B') else request.form_data.get('productASIN', request.item_id)
 
-        logger.external_api_call("RapidAPI", f"product/{asin}")
         main_product = rapidapi_client.fetch_product_details(asin)
         if not main_product:
             raise HTTPException(status_code=404, detail=f"Product not found: {asin}")
-        logger.info(f"Product fetched: {main_product['title'][:60]}...")
 
         # Fetch reviews only for warm products (Group A scenarios)
         api_reviews = []
         if scenario_config['group'] == 'warm_warm':
-            logger.external_api_call("RapidAPI", f"reviews/{asin}", pages=2)
             api_reviews = rapidapi_client.fetch_product_reviews(asin, max_pages=2)
-            logger.info(f"Reviews fetched: {len(api_reviews)}")
+            logger.info(f"RapidAPI: {len(api_reviews)} reviews fetched")
 
         # STEP 3: Run MOCK_DATA orchestrator
-        logger.step(3, "Running MOCK_DATA_MINI_AGENT orchestrator")
-        logger.agent_start("MockDataOrchestrator", "simulation data generation")
         orchestrator = MockDataOrchestrator(use_cache=True)
 
         mock_data = await orchestrator.generate_simulation_data(
@@ -273,8 +255,8 @@ async def generate_mock_data(request: GenerateMockDataRequest):
             scenario_config=scenario_config
         )
         logger.agent_complete(
-            "MockDataOrchestrator",
-            "simulation data generation",
+            "Orchestrator",
+            "data generation",
             products=mock_data['metadata']['product_count'],
             users=mock_data['metadata']['user_count'],
             transactions=mock_data['metadata']['transaction_count'],
@@ -282,15 +264,14 @@ async def generate_mock_data(request: GenerateMockDataRequest):
         )
 
         # STEP 4: Clean up old mock data (for clean testing)
-        logger.step(4, "Cleaning up old mock data")
         try:
             deleted_counts = db.cleanup_mock_data()
-            logger.database_operation("cleanup", "all_tables", sum(deleted_counts.values()))
+            if sum(deleted_counts.values()) > 0:
+                logger.info(f"Cleanup: {sum(deleted_counts.values())} rows deleted")
         except Exception as e:
-            logger.warning(f"Cleanup warning (non-fatal): {str(e)}")
+            logger.warning(f"Cleanup warning: {str(e)}")
 
         # STEP 5: Insert new mock data into database
-        logger.step(5, "Inserting generated data into database")
 
         # Deduplicate products by item_id (keep first occurrence, which is main product)
         seen_item_ids = set()
@@ -327,20 +308,13 @@ async def generate_mock_data(request: GenerateMockDataRequest):
                 seen_review_ids.add(review['review_id'])
 
         # Insert into database
-        logger.database_operation("insert", "products", len(unique_products))
         db.insert_products_batch(unique_products)
-
-        logger.database_operation("insert", "users", len(unique_users))
         db.insert_users_batch(unique_users)
-
-        logger.database_operation("insert", "transactions", len(unique_transactions))
         db.insert_transactions_batch(unique_transactions)
-
-        logger.database_operation("insert", "reviews", len(unique_reviews))
         db.insert_reviews_batch(unique_reviews)
 
+        logger.info(f"Database: {len(unique_products)}p {len(unique_users)}u {len(unique_transactions)}t {len(unique_reviews)}r inserted")
         logger.separator()
-        logger.info("✅ Mock data generation complete!")
 
         # Return metadata for Summary pane (DO NOT start survey yet)
         return GenerateMockDataResponse(
