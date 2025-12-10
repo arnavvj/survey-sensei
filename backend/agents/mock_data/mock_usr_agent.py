@@ -69,40 +69,59 @@ class MockUserAgent(BaseMockAgent):
         Returns:
             List of mock user dictionaries
         """
-        system_prompt = """You are a demographic data engineer creating realistic user personas for an e-commerce platform.
-Generate diverse users with realistic demographics:
-- Mix of ages (18-75)
-- Various US locations (cities and ZIP codes)
-- Balanced gender distribution
-- Realistic name variations
+        import hashlib
+        import time
+
+        # Add timestamp-based seed for variation across runs
+        seed = hashlib.md5(f"{time.time()}{count}".encode()).hexdigest()[:8]
+
+        system_prompt = """You are a demographic data engineer creating highly diverse, creative user personas for an e-commerce platform.
+
+CRITICAL REQUIREMENTS:
+- Generate UNIQUE and VARIED names (avoid repetitive patterns)
+- Use diverse naming styles: traditional, modern, multicultural, hyphenated
+- Vary ages significantly (spread across 18-75 range, not clustered)
+- Include diverse US cities: major metros, mid-size cities, small towns
+- Mix coastal, midwest, southern, western locations
+- Creative but realistic email patterns (not all firstname.lastname)
+- Balance gender distribution
+
+DIVERSITY EXAMPLES:
+Names: Mix "Emma Johnson", "Raj Patel", "Maria Garcia", "Tyler Chen", "Jordan Williams"
+Emails: Various styles like firstlast@, initial.last@, nickname@, first123@
+Ages: Spread from Gen Z (18-24), Millennials (25-40), Gen X (41-56), Boomers (57-75)
+Locations: Mix NYC, Austin, Portland, Nashville, Boulder, Boise, Asheville, etc.
 
 Return ONLY valid JSON."""
 
-        user_prompt = f"""Generate {count} diverse user personas.
+        user_prompt = f"""Generate {count} HIGHLY DIVERSE and UNIQUE user personas.
 
-Context (for demographic variety):
+Uniqueness seed: {seed}
+
+Context (for demographic VARIETY - create users DIFFERENT from this):
 Main user age: {main_user['age']}
 Main user location: {main_user['base_location']}
 
 Return JSON array with these fields for each user:
 [
   {{
-    "user_name": "full name",
-    "email_id": "realistic email address",
-    "age": age as number (18-75),
-    "base_location": "City, State format",
-    "base_zip": "5-digit ZIP code",
-    "gender": "Male or Female"
+    "user_name": "full name (be creative, use diverse cultural backgrounds)",
+    "email_id": "realistic email (vary the format/style for each user)",
+    "age": age as number (SPREAD across 18-75, avoid clustering),
+    "base_location": "City, State format (use VARIED cities across US)",
+    "base_zip": "5-digit ZIP code (must match the city)",
+    "gender": "Male or Female (balance distribution)"
   }}
 ]
 
-Make them diverse and realistic."""
+IMPORTANT: Make each user distinctly DIFFERENT from others. Avoid patterns like all similar ages or all big cities.
+Be creative with names (traditional, modern, multicultural mix). Vary email styles. Spread ages widely."""
 
         response = self._call_llm(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=1500,  # Higher for multiple users
-            temperature=0.9
+            temperature=1.0  # Maximum creativity for diverse users
         )
 
         users = self._parse_json_response(response)
