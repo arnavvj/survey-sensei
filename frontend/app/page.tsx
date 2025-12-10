@@ -2,6 +2,7 @@
 
 import { FormData, FormStep, MockDataSummary, ProductData, ReviewOption, SurveyQuestion, SurveyResponse, SurveySession } from '@/lib/types'
 import { useEffect, useRef, useState } from 'react'
+import { logger } from '@/lib/logger'
 
 import { ProductUrlField } from '@/components/form/ProductUrlField'
 import { ReviewStatusField } from '@/components/form/ReviewStatusField'
@@ -243,7 +244,7 @@ export default function HomePage() {
 
       setShowSurveyUI(true)
     } catch (error: any) {
-      console.error('Error starting survey:', error)
+      logger.apiError('Start survey', error)
       setSurveyError(error.message || 'Failed to start survey')
     } finally {
       setIsLoadingSurvey(false)
@@ -256,7 +257,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      console.log('Generating reviews for session:', sessionId)
+      logger.agent('Generating review options', { sessionId })
       const response = await fetch('/api/reviews/generate', {
         method: 'POST',
         headers: {
@@ -267,16 +268,14 @@ export default function HomePage() {
         }),
       })
 
-      console.log('Generate reviews response status:', response.status)
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        console.error('Generate reviews error response:', errorData)
+        logger.apiError('Generate reviews', errorData)
         throw new Error(errorData.error || `Failed to generate reviews (${response.status})`)
       }
 
       const data = await response.json()
-      console.log('Generated reviews data:', data)
+      logger.success('Reviews generated successfully', { count: data.review_options?.length, sentiment: data.sentiment_band })
 
       setReviewOptions(data.review_options)
       setSentimentBand(data.sentiment_band)
@@ -286,7 +285,7 @@ export default function HomePage() {
       setActivePaneIn4PaneMode('review')
       setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
     } catch (error: any) {
-      console.error('Error generating reviews:', error)
+      logger.apiError('Generate reviews', error)
       setSurveyError(error.message || 'Failed to generate reviews')
     } finally {
       setIsGeneratingReviews(false)
@@ -301,7 +300,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      console.log('Regenerating reviews for session:', surveySession.session_id)
+      logger.agent('Regenerating review options', { sessionId: surveySession.session_id })
       const response = await fetch('/api/reviews/regenerate', {
         method: 'POST',
         headers: {
@@ -312,22 +311,20 @@ export default function HomePage() {
         }),
       })
 
-      console.log('Regenerate reviews response status:', response.status)
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        console.error('Regenerate reviews error response:', errorData)
+        logger.apiError('Regenerate reviews', errorData)
         throw new Error(errorData.error || `Failed to regenerate reviews (${response.status})`)
       }
 
       const data = await response.json()
-      console.log('Regenerated reviews data:', data)
+      logger.success('Reviews regenerated successfully', { count: data.review_options?.length })
 
       setReviewOptions(data.review_options)
       setSentimentBand(data.sentiment_band)
       setSelectedReviewIndex(null) // Clear selection
     } catch (error: any) {
-      console.error('Error regenerating reviews:', error)
+      logger.apiError('Regenerate reviews', error)
       setSurveyError(error.message || 'Failed to regenerate reviews')
     } finally {
       setIsGeneratingReviews(false)
@@ -481,7 +478,7 @@ export default function HomePage() {
       setSelectedOptions([])
       setOtherText('')
     } catch (error: any) {
-      console.error('Error submitting answer:', error)
+      logger.apiError('Submit answer', error)
       setSurveyError(error.message || 'Failed to submit answer')
     } finally {
       setIsLoadingSurvey(false)
@@ -549,7 +546,7 @@ export default function HomePage() {
         })
       }
     } catch (error: any) {
-      console.error('Error skipping question:', error)
+      logger.apiError('Skip question', error)
       setSurveyError(error.message || 'Failed to skip question')
     } finally {
       setIsLoadingSurvey(false)
@@ -644,9 +641,9 @@ export default function HomePage() {
       })
       setIsReviewSubmitted(true)
 
-      console.log('Review submitted successfully:', data)
+      logger.success('Review submitted successfully', { reviewIndex: selectedReviewIndex })
     } catch (error: any) {
-      console.error('Error submitting review:', error)
+      logger.apiError('Submit review', error)
       setSurveyError(error.message || 'Failed to submit review')
     } finally {
       setIsLoadingSurvey(false)
@@ -661,10 +658,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      console.log('Loading question for edit:', {
-        session_id: surveySession.session_id,
-        question_number: questionNumber,
-      })
+      logger.info('Loading question for edit', { sessionId: surveySession.session_id, questionNumber })
 
       const response = await fetch('/api/survey/get-for-edit', {
         method: 'POST',
@@ -678,12 +672,12 @@ export default function HomePage() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         const errorMessage = errorData.detail || errorData.error || 'Failed to load question for editing'
-        console.error('Failed to load question for editing:', errorMessage, 'Status:', response.status)
+        logger.apiError('Load question for edit', { errorMessage, status: response.status })
         throw new Error(errorMessage)
       }
 
       const data = await response.json()
-      console.log('Loaded question for edit:', data)
+      logger.success('Question loaded for edit', { questionNumber: data.question_number })
 
       // Save current question before entering edit mode
       if (surveySession.question) {
@@ -708,7 +702,7 @@ export default function HomePage() {
       })
 
     } catch (error: any) {
-      console.error('Error loading question for edit:', error)
+      logger.apiError('Load question for edit', error)
       setSurveyError(error.message || 'Failed to load question for editing')
     } finally {
       setIsLoadingSurvey(false)
@@ -764,7 +758,7 @@ export default function HomePage() {
       // Clear selected options for next question
       setSelectedOptions([])
     } catch (error: any) {
-      console.error('Error editing answer:', error)
+      logger.apiError('Edit answer', error)
       setSurveyError(error.message || 'Failed to edit answer')
     } finally {
       setIsLoadingSurvey(false)
