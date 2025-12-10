@@ -24,7 +24,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 3,
         'api_review_count': 25,  # Use first 25 scraped reviews
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'A2': {
         'scenario_id': 'A2',
@@ -40,7 +40,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 0,
         'api_review_count': 25,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'A3': {
         'scenario_id': 'A3',
@@ -56,7 +56,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 3,
         'api_review_count': 25,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'A4': {
         'scenario_id': 'A4',
@@ -72,7 +72,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 0,
         'api_review_count': 25,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
 
     # Group B: Cold Product + Warm User (4 scenarios)
@@ -91,7 +91,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 3,
         'api_review_count': 0,  # No API reviews for cold product
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'B2': {
         'scenario_id': 'B2',
@@ -107,7 +107,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'B3': {
         'scenario_id': 'B3',
@@ -123,7 +123,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 3,
         'api_review_count': 0,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'B4': {
         'scenario_id': 'B4',
@@ -139,7 +139,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
 
     # Group C: Cold Product + Cold User (4 scenarios)
@@ -158,7 +158,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 2,  # Reviews without purchases
         'api_review_count': 0,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'C2': {
         'scenario_id': 'C2',
@@ -174,7 +174,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'C3': {
         'scenario_id': 'C3',
@@ -190,7 +190,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
     'C4': {
         'scenario_id': 'C4',
@@ -206,7 +206,7 @@ SCENARIO_CONFIGS = {
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
         'reviews_per_product': 15,
-        'generate_embeddings': False,
+        'generate_embeddings': True,
     },
 }
 
