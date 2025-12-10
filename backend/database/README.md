@@ -1,430 +1,316 @@
-# Survey Sensei - Database Setup Guide
+# Survey Sensei - Database Setup
 
 ## Overview
 
-This database schema is optimized for a **GenAI-powered agentic survey system**. The architecture supports dynamic, personalized survey generation based on user profiles, purchase history, and real-time sentiment analysis.
+PostgreSQL database schema for Survey Sensei's mock data engineering framework. Supports realistic e-commerce data generation with AI-powered mock data agents.
 
-## Architecture Highlights
+## Quick Setup
 
-### Key GenAI Optimizations
+### 1. Generate SQL
 
-1. **Vector Embeddings (pgvector)**
-   - Product embeddings for semantic search
-   - User profile embeddings for personalization
-   - Review embeddings for sentiment clustering
-   - Enables similarity search and recommendation systems
-
-2. **Agentic Survey System**
-   - `survey` table stores dynamically generated questions
-   - `agent_reasoning` field provides explainability
-   - `agent_confidence_score` for quality control
-   - `correctly_anticipates_user_sentiment` for model improvement
-
-3. **Session State Management**
-   - `survey_sessions` tracks entire conversation flow
-   - `session_context` (JSONB) stores agent memory
-   - Enables multi-turn conversational surveys
-
-## Folder Structure
-
+```bash
+cd backend
+python database/init/apply_migrations.py
 ```
-backend/
-├── database/                # Database schemas and migrations
-│   ├── init/               # Migration tools and scripts
-│   │   ├── apply_migrations.py  # Python migration tool (recommended)
-│   │   ├── run_migrations.py    # Alternative Python runner
-│   │   └── run_migrations.sh    # Bash script for psql
-│   ├── migrations/         # SQL migration files (run in order)
-│   │   ├── 001_enable_extensions.sql
-│   │   ├── 002_create_products_table.sql
-│   │   ├── 003_create_users_table.sql
-│   │   ├── 004_create_transactions_table.sql
-│   │   ├── 005_create_reviews_table.sql
-│   │   ├── 006_create_survey_table.sql
-│   │   ├── 007_create_survey_sessions_table.sql
-│   │   ├── 008_create_triggers.sql
-│   │   ├── 009_enable_row_level_security.sql
-│   │   ├── 010_add_conversation_history_column.sql
-│   │   └── _combined_migrations.sql  # Auto-generated combined SQL
-│   ├── functions/          # Custom PostgreSQL functions
-│   ├── seed/              # Sample data for testing
-│   ├── supabase_client.py # Supabase Python client
-│   └── README.md          # This file
+
+This creates `backend/database/_combined_migrations.sql` with:
+- DROP TABLE statements (master reset)
+- All table creation statements
+- Triggers and functions
+- Row Level Security policies
+
+### 2. Run in Supabase
+
+1. Go to [Supabase SQL Editor](https://supabase.com/dashboard/project/_/sql/new)
+2. Paste entire contents of `_combined_migrations.sql`
+3. Click "Run"
+
+**WARNING:** This will DROP all existing tables and data!
+
+### 3. Load Mock Data
+
+```bash
+# Start backend server
+python -m backend.main
+
+# Call mock data endpoint from frontend or directly
+curl -X POST http://localhost:8000/api/mock-data \
+  -H "Content-Type: application/json" \
+  -d '{"asin": "B07ZPKN6YR", "num_scenarios": 3}'
 ```
 
 ## Database Schema
 
-### Core Tables
+### Core Tables (Mock Data System)
 
-#### 1. `products`
-Stores product catalog with semantic embeddings.
-
-**Key Fields:**
-- `embeddings` (vector): For semantic product search
-- `tags` (array): Multi-label categorization
-- `pictures` (JSONB): Flexible image storage
-
-#### 2. `users`
-User profiles with demographic data for personalization.
-
-**Key Fields:**
-- `embeddings` (vector): User profile representation
-- Demographics: age, location, credit_score, spending patterns
-
-#### 3. `transactions`
-Purchase and delivery tracking with computed fields.
-
-**Key Features:**
-- Auto-computed `discount_percentage`
-- Constraint validation for dates and prices
-- Status tracking (pending, delivered, returned)
-
-#### 4. `reviews`
-User-generated reviews with AI-enhanced metadata.
-
-**Key Fields:**
-- `embeddings` (vector): Review semantic representation
-- `sentiment_score` (-1.0 to 1.0): AI-computed sentiment
-- `toxicity_score` (0.0 to 1.0): Content moderation
-- One review per transaction (enforced by constraint)
-
-#### 5. `survey` ⭐ **Core Agentic System**
-Dynamically generated survey questions with agent metadata.
-
-**Key Fields:**
-- `question` & `options_object`: Flexible question formats
-- `selected_option` (TEXT): User's selected answer/option
-- `agent_reasoning`: Explainability for each question
-- `agent_confidence_score`: Quality metric
-- `user_response` (JSONB): Stores actual answers with metadata
-- `follow_up_trigger`: Enables conversational flow
-
-#### 6. `survey_sessions` 🆕
-Tracks complete survey sessions for analytics.
-
-**Key Features:**
-- Progress tracking (total vs answered questions)
-- Agent performance metrics
-- `session_context` (JSONB): Maintains conversation state
-
-## Quick Setup (One Command)
-
-### Option 1: Automated Migration Tool (Easiest)
-
-```bash
-# Run the Python migration tool from backend directory
-cd backend
-conda activate survey-sensei
-python database/init/apply_migrations.py
+```
+products ──┐
+           ├──> transactions ──> reviews
+users ─────┘
 ```
 
-This will:
-- Display all migration SQL
-- Save combined SQL to `backend/database/migrations/_combined_migrations.sql`
-- Provide copy-paste instructions for Supabase SQL Editor
+#### 1. **products** - Product catalog from Amazon
+- Fetched via RapidAPI Real-Time Amazon Data API
+- Contains: ASIN, title, brand, price, photos, ratings
+- `is_mock`: Distinguishes real (RapidAPI) vs generated products
+- Vector embeddings for semantic search (reserved for future use)
 
-### Option 2: Using psql (Terminal)
-
-```bash
-# Get your database password from: Supabase Dashboard → Settings → Database
-export PGPASSWORD='your-database-password'
-
-# Run all migrations from project root
-cat backend/database/migrations/*.sql | psql \
-    -h db.tursagcbtccbzdyjavex.supabase.co \
-    -p 5432 -U postgres -d postgres
+**Key Fields:**
+```sql
+item_id VARCHAR(20) PRIMARY KEY  -- ASIN
+title TEXT NOT NULL
+brand VARCHAR(255)
+price DECIMAL(12, 2)
+star_rating DECIMAL(3, 2)
+photos JSONB
+is_mock BOOLEAN DEFAULT false
+embeddings vector(1536)  -- Reserved
 ```
 
-Or use the provided script:
-```bash
-chmod +x backend/database/init/run_migrations.sh
-PGPASSWORD='your-password' ./backend/database/init/run_migrations.sh
+#### 2. **users** - User personas
+- Generated by `MOCK_USR_MINI_AGENT` with realistic demographics
+- Main user (real) + mock users for data diversity
+- Demographic fields: age, location, credit_score, spending patterns
+
+**Key Fields:**
+```sql
+user_id UUID PRIMARY KEY
+user_name VARCHAR(255)
+email_id VARCHAR(255) UNIQUE
+age INTEGER
+base_location VARCHAR(255)
+credit_score INTEGER
+avg_monthly_expenses DECIMAL(12, 2)
+is_mock BOOLEAN DEFAULT false
+embeddings vector(1536)  -- Reserved
 ```
 
-### Option 3: Manual SQL Editor
+#### 3. **transactions** - Purchase records
+- Generated by `MOCK_TRX_MINI_AGENT`
+- Links users to products with realistic temporal patterns
+- Auto-computed discount percentage
+- Prevents duplicate purchases (e-commerce sparsity)
 
-Copy and paste the contents of `backend/database/migrations/_combined_migrations.sql` (auto-generated) or individual migration files into the Supabase SQL Editor:
-- Go to: https://tursagcbtccbzdyjavex.supabase.co/project/default/sql/new
-- Paste SQL and click "Run"
+**Key Fields:**
+```sql
+transaction_id UUID PRIMARY KEY
+item_id VARCHAR(20) REFERENCES products
+user_id UUID REFERENCES users
+order_date TIMESTAMP
+delivery_date TIMESTAMP
+original_price DECIMAL(12, 2)
+retail_price DECIMAL(12, 2)
+discount_percentage DECIMAL(5, 2) GENERATED
+transaction_status VARCHAR(20)
+is_mock BOOLEAN DEFAULT false
+```
 
-## Setup Instructions (Detailed)
+#### 4. **reviews** - Product reviews
+- Generated by `MOCK_RVW_MINI_AGENT`
+- Mix of real (RapidAPI scraped) + AI-generated reviews
+- One review per transaction (enforced constraint)
+- Tracks review source and authorship
 
-### Prerequisites
+**Key Fields:**
+```sql
+review_id UUID PRIMARY KEY
+item_id VARCHAR(20) REFERENCES products
+user_id UUID REFERENCES users
+transaction_id UUID REFERENCES transactions
+review_title VARCHAR(500)
+review_text TEXT NOT NULL
+review_stars INTEGER  -- 1-5
+source VARCHAR(20)  -- 'rapidapi', 'agent_generated', 'user_submitted'
+manual_or_agent_generated VARCHAR(20)  -- 'manual', 'agent'
+embeddings vector(1536)  -- Reserved
+```
 
-1. **Supabase Account**: https://supabase.com
-2. **pgvector Extension**: Required for embeddings (auto-installed via migrations)
-3. **Conda Environment**: Uses `survey-sensei` environment (no separate requirements.txt needed)
+**Source vs Manual/Agent Distinction:**
+- `source`: Where the review came from (RapidAPI, agent, user)
+- `manual_or_agent_generated`: Who wrote the text (human, AI)
 
-### Migration Files
+### Survey Tables (Future - Subject to Change)
 
-Each migration is in a separate file for clarity and granular control:
+#### 5. **survey** - Survey questions (⚠️ In Development)
+- Dynamically generated questions for user surveys
+- Schema will evolve as survey framework develops
 
-1. **001_enable_extensions.sql** - PostgreSQL extensions (uuid-ossp, vector)
-2. **002_create_products_table.sql** - Product catalog with embeddings
-3. **003_create_users_table.sql** - User profiles and demographics
-4. **004_create_transactions_table.sql** - Purchase tracking
-5. **005_create_reviews_table.sql** - User reviews with sentiment
-6. **006_create_survey_table.sql** - Survey questions and responses
-7. **007_create_survey_sessions_table.sql** - Survey session tracking
-8. **008_create_triggers.sql** - Auto-update triggers
-9. **009_enable_row_level_security.sql** - RLS policies
+#### 6. **survey_sessions** - Session tracking (⚠️ In Development)
+- Tracks survey progress and conversation state
+- Schema will evolve as survey framework develops
 
-### Step 3: Verify Installation
+## Table Relationships
 
-Run this query to verify all tables were created:
+```
+┌─────────────┐
+│  products   │  Real products from RapidAPI + similar products (generated)
+│  (ASIN)     │
+└──────┬──────┘
+       │
+       │ 1:N
+       │
+┌──────▼──────┐       ┌─────────────┐
+│transactions │  N:1  │    users    │  Real user + mock users (generated)
+│             ├───────┤             │
+└──────┬──────┘       └─────────────┘
+       │
+       │ 1:1
+       │
+┌──────▼──────┐
+│   reviews   │  Real reviews (RapidAPI) + generated reviews
+│             │
+└─────────────┘
+```
+
+**Data Flow:**
+1. Main product fetched from RapidAPI (real)
+2. Similar products generated by MOCK_PDT_MINI_AGENT
+3. Main user provided, mock users generated by MOCK_USR_MINI_AGENT
+4. Transactions created by MOCK_TRX_MINI_AGENT (realistic patterns)
+5. Reviews created by MOCK_RVW_MINI_AGENT (mix of real + generated)
+
+## Mock Data Architecture
+
+### Data Generation Pipeline
+
+```
+User Input (ASIN) → Orchestrator → Agents → Database
+                         │
+                         ├─> MOCK_PDT_MINI_AGENT (similar products)
+                         ├─> MOCK_USR_MINI_AGENT (user personas)
+                         ├─> MOCK_TRX_MINI_AGENT (transactions)
+                         └─> MOCK_RVW_MINI_AGENT (reviews)
+```
+
+### Realism Features
+
+1. **E-commerce Sparsity**: Users don't buy duplicate products
+2. **Temporal Patterns**: Order → Delivery dates are realistic
+3. **Review Distribution**: Configurable sentiment spread (good/neutral/bad)
+4. **Price Handling**: Fallback for products with missing prices
+5. **Data Provenance**: Every record tracks if it's real or generated
+
+### `is_mock` Column Meaning
+
+- `products.is_mock = false`: Real product from RapidAPI
+- `products.is_mock = true`: Generated similar product
+- `users.is_mock = false`: Real main user
+- `users.is_mock = true`: Generated mock user
+- `transactions.is_mock = false`: Main user's transaction
+- `transactions.is_mock = true`: Mock user's transaction
+
+## Database Features
+
+### Auto-Generated Fields
+
+- **Timestamps**: `created_at`, `updated_at` (auto-managed by triggers)
+- **Discount Percentage**: Computed from `(original_price - retail_price) / original_price * 100`
+
+### Constraints
+
+- Foreign keys with CASCADE delete
+- Check constraints: price ≥ 0, stars 1-5, age 18-120
+- Unique constraints: one review per transaction
+- Enum constraints: source, status, gender fields
+
+### Indexes
+
+- Primary keys (UUID, ASIN)
+- Foreign keys (for joins)
+- Vector embeddings (IVFFlat - reserved for future use)
+- Frequently queried fields (brand, category, stars, source)
+
+### Triggers
+
+1. **update_updated_at_column()**: Auto-updates `updated_at` on all tables
+2. **Review count sync**: Updates `products.review_count` when reviews added/removed
+
+## File Structure
+
+```
+backend/database/
+├── _combined_migrations.sql       # Generated master reset script
+├── README.md                      # This file
+├── supabase_client.py            # Python Supabase client
+├── init/
+│   └── apply_migrations.py       # Generates combined SQL
+├── migrations/                   # Individual migration files
+│   ├── 001_enable_extensions.sql
+│   ├── 002_create_products_table.sql
+│   ├── 003_create_users_table.sql
+│   ├── 004_create_transactions_table.sql
+│   ├── 005_create_reviews_table.sql
+│   ├── 006_create_survey_table.sql      # ⚠️ Subject to change
+│   ├── 007_create_survey_sessions_table.sql  # ⚠️ Subject to change
+│   ├── 008_create_triggers.sql
+│   ├── 009_enable_row_level_security.sql
+│   └── 010_add_conversation_history_column.sql
+└── functions/
+    └── match_products.sql        # Vector similarity search (reserved)
+```
+
+## Verification
+
+### Check Tables Created
 
 ```sql
 SELECT table_name
 FROM information_schema.tables
 WHERE table_schema = 'public'
-AND table_type = 'BASE TABLE'
 ORDER BY table_name;
 ```
 
-Expected output:
-- products
-- reviews
-- survey
-- survey_sessions
-- transactions
-- users
+Expected: `products`, `reviews`, `survey`, `survey_sessions`, `transactions`, `users`
 
-### Step 4: Load Sample Data (Optional)
-
-For development/testing, load sample data:
+### Check Mock Data
 
 ```sql
--- Copy contents of seed/001_sample_data.sql
+-- Count real vs mock products
+SELECT is_mock, COUNT(*) FROM products GROUP BY is_mock;
+
+-- Count real vs mock users
+SELECT is_mock, COUNT(*) FROM users GROUP BY is_mock;
+
+-- Review source distribution
+SELECT source, manual_or_agent_generated, COUNT(*)
+FROM reviews
+GROUP BY source, manual_or_agent_generated;
 ```
-
-### Step 5: Verify Row Level Security (RLS)
-
-Check that RLS is enabled:
-
-```sql
-SELECT tablename, rowsecurity
-FROM pg_tables
-WHERE schemaname = 'public';
-```
-
-All tables should show `rowsecurity = true`.
-
-## Database Features
-
-### Auto-Timestamps
-
-All tables automatically maintain:
-- `created_at`: Set on insert
-- `updated_at`: Auto-updated on modification
-
-### Triggers
-
-1. **Update Timestamps**: Auto-updates `updated_at` on all tables
-2. **Review Count**: Auto-increments `products.review_count` when reviews are added/removed
-
-### Constraints
-
-- **Check Constraints**: Validate data ranges (ages, scores, dates)
-- **Foreign Keys**: Enforce referential integrity with CASCADE deletes
-- **Unique Constraints**: Prevent duplicate reviews per transaction
-
-### Indexes
-
-Performance-optimized indexes on:
-- Foreign keys (for joins)
-- Frequently queried fields (status, dates, platforms)
-- Vector embeddings (IVFFlat for similarity search)
-- JSONB fields (GIN indexes)
 
 ## Row Level Security (RLS)
 
-### Current Policies
+Current policies enable public read for products, user-scoped access for personal data.
 
-1. **Products**: Public read access (catalog browsing)
-2. **Users**: Users can only view their own profile
-3. **Transactions**: Users can only view their own purchases
-4. **Reviews**: Users can view and create their own reviews
-5. **Survey Questions**: Users can view their own surveys
-6. **Sessions**: Users can view their own survey sessions
-
-### Customizing RLS
-
-For development, you may want to temporarily disable RLS:
+**For development, you may disable RLS:**
 
 ```sql
-ALTER TABLE table_name DISABLE ROW LEVEL SECURITY;
+ALTER TABLE products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE reviews DISABLE ROW LEVEL SECURITY;
 ```
 
-**⚠️ Warning**: Never disable RLS in production!
-
-## Vector Embeddings Setup
-
-### Dimension Size
-
-Default: **1536** (OpenAI `text-embedding-ada-002`)
-
-To use different embedding models:
-- **OpenAI text-embedding-3-small**: 1536 dimensions
-- **OpenAI text-embedding-3-large**: 3072 dimensions
-- **Cohere embed-v3**: 1024 dimensions
-
-Update the schema:
-
-```sql
-ALTER TABLE products
-ALTER COLUMN embeddings TYPE vector(3072);
-```
-
-### Similarity Search Example
-
-Find similar products:
-
-```sql
-SELECT item_id, title,
-       1 - (embeddings <=> '[0.1, 0.2, ...]'::vector) AS similarity
-FROM products
-ORDER BY embeddings <=> '[0.1, 0.2, ...]'::vector
-LIMIT 10;
-```
-
-## GenAI Integration Points
-
-### 1. Product Embeddings
-```python
-# Generate on product creation
-embedding = openai.Embedding.create(
-    input=f"{product.title} {product.description}",
-    model="text-embedding-ada-002"
-)
-```
-
-### 2. User Profile Embeddings
-```python
-# Aggregate user preferences
-user_profile = f"Age: {age}, Location: {location}, Interests: {tags}"
-embedding = generate_embedding(user_profile)
-```
-
-### 3. Review Sentiment
-```python
-# Analyze review sentiment
-sentiment = analyze_sentiment(review_text)  # -1.0 to 1.0
-toxicity = moderate_content(review_text)    # 0.0 to 1.0
-```
-
-### 4. Dynamic Question Generation (Core Agentic System)
-```python
-# Agent generates contextual questions
-question = agent.generate_question(
-    user_profile=user_embeddings,
-    product=product_data,
-    transaction=transaction_data,
-    previous_answers=session_context
-)
-```
-
-## Schema Evolution
-
-### Adding New Columns
-
-```sql
-ALTER TABLE products
-ADD COLUMN new_field TEXT;
-```
-
-### Creating Migrations
-
-For future schema changes, create numbered migration files in `database/migrations/`:
-
-```bash
-# Example: Adding a new column
-database/migrations/010_add_user_preferences.sql
-```
-
-Best practices:
-- Use sequential numbering (010, 011, 012...)
-- One logical change per file
-- Include descriptive names
-- Run migration tool after creating: `python database/init/apply_migrations.py`
-
-## Performance Optimization
-
-### Index Tuning
-
-Monitor query performance:
-
-```sql
-EXPLAIN ANALYZE
-SELECT * FROM products WHERE source_platform = 'amazon';
-```
-
-### Vector Index Optimization
-
-Adjust IVFFlat lists based on table size:
-
-```sql
--- For larger datasets (>1M rows), increase lists
-CREATE INDEX idx_products_embeddings
-ON products USING ivfflat(embeddings vector_cosine_ops)
-WITH (lists = 1000);
-```
-
-## Backup & Recovery
-
-### Export Schema
-
-```sql
-pg_dump -h db.xxx.supabase.co -U postgres -s public > schema_backup.sql
-```
-
-### Export Data
-
-```sql
-pg_dump -h db.xxx.supabase.co -U postgres -a public > data_backup.sql
-```
+**WARNING:** Never disable RLS in production!
 
 ## Troubleshooting
 
-### Common Issues
+### Tables not appearing
+- Ensure pgvector extension is enabled: `CREATE EXTENSION vector;`
+- Check Supabase logs: Project Settings → Database → Logs
 
-1. **pgvector extension not found**
-   ```sql
-   CREATE EXTENSION vector;
-   ```
+### Mock data generation fails
+- Verify RapidAPI key in `.env.local`
+- Check RapidAPI rate limits
+- Review agent logs for specific errors
 
-2. **RLS blocking queries**
-   - Check authentication: `SELECT auth.uid();`
-   - Review policies: `SELECT * FROM pg_policies;`
+### Price showing $0.00
+- Some Amazon products hide prices ("See price in cart")
+- Transaction agent generates fallback prices ($19.99-$149.99)
+- This is expected behavior
 
-3. **Slow vector queries**
-   - Ensure IVFFlat index is created
-   - Increase `lists` parameter for larger datasets
+## Future Enhancements
 
-## Next Steps (Phase 1-4)
-
-- **Phase 1**: Frontend UI for survey interaction
-- **Phase 2**: Agentic backend (LangGraph/LangChain agents)
-- **Phase 3**: REST/GraphQL APIs
-- **Phase 4**: Production deployment
-
-## Connection Details
-
-```env
-SUPABASE_URL=https://tursagcbtccbzdyjavex.supabase.co
-SUPABASE_ANON_KEY=eyJhbGci...
-```
-
-See `.env.example` for complete configuration.
-
-## Support
-
-For issues or questions:
-1. Check Supabase logs: Project Settings → Database → Logs
-2. Review table constraints: `\d+ table_name` in psql
-3. Verify RLS policies: `SELECT * FROM pg_policies WHERE tablename = 'your_table';`
-
----
-
-**Schema Version**: 1.0
-**Last Updated**: 2025-01-08
-**Optimized for**: GenAI Agentic Survey Systems
+- Vector embeddings population (currently reserved/NULL)
+- Survey table schema finalization
+- Advanced semantic search using pgvector
+- Sentiment analysis integration

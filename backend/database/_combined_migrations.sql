@@ -1,3 +1,25 @@
+-- ============================================================================
+-- Survey Sensei - Master Reset Script
+-- ============================================================================
+-- This script drops all existing tables and recreates them from scratch
+-- WARNING: This will DELETE ALL DATA in the database!
+-- ============================================================================
+
+-- Drop tables in reverse dependency order (drop dependent tables first)
+DROP TABLE IF EXISTS reviews CASCADE;
+DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS survey_sessions CASCADE;
+DROP TABLE IF EXISTS survey CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+
+-- Drop functions
+DROP FUNCTION IF EXISTS match_products(vector, int, int) CASCADE;
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+
+-- Note: Extensions are kept enabled (uuid-ossp, vector)
+-- ============================================================================
+
 -- Migration: Enable PostgreSQL Extensions
 -- Required extensions for Survey Sensei
 

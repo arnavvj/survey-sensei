@@ -137,13 +137,45 @@ def main():
 
     print("\n" + "="*70 + "\n")
 
-    # Save combined SQL to a file for easy copying
-    output_file = migrations_dir / "_combined_migrations.sql"
+    # Save combined SQL to database root directory (not migrations subfolder)
+    database_dir = migrations_dir.parent
+    output_file = database_dir / "_combined_migrations.sql"
+
+    # Add DROP statements at the beginning for master reset capability
+    drop_statements = """-- ============================================================================
+-- Survey Sensei - Master Reset Script
+-- ============================================================================
+-- This script drops all existing tables and recreates them from scratch
+-- WARNING: This will DELETE ALL DATA in the database!
+-- ============================================================================
+
+-- Drop tables in reverse dependency order (drop dependent tables first)
+DROP TABLE IF EXISTS reviews CASCADE;
+DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS survey_sessions CASCADE;
+DROP TABLE IF EXISTS survey CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+
+-- Drop functions
+DROP FUNCTION IF EXISTS match_products(vector, int, int) CASCADE;
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+
+-- Note: Extensions are kept enabled (uuid-ossp, vector)
+-- ============================================================================
+
+"""
+
+    # Combine: DROP statements + all migrations
+    final_sql = drop_statements + combined_sql
+
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(combined_sql)
+        f.write(final_sql)
 
     print(f"Combined SQL saved to: {output_file}")
-    print(f"You can copy this entire file into Supabase SQL Editor\n")
+    print(f"You can copy this entire file into Supabase SQL Editor")
+    print(f"\nWARNING: This file includes DROP TABLE statements for master reset")
+    print(f"         Running it will DELETE ALL DATA and recreate tables from scratch\n")
 
     return 0
 
