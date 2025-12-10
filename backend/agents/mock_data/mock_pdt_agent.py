@@ -86,20 +86,36 @@ class MockProductAgent(BaseMockAgent):
             cached_data = self.cache.get(**cache_key)
             if cached_data:
                 return cached_data
+        # Detect category from main product
+        category = self.detect_category(main_product['title'])
+        main_brand = main_product.get('brand', 'Unknown')
+
+        # If main brand is Unknown, try to extract from title
+        if main_brand == 'Unknown':
+            # Simple extraction: first word before common product keywords
+            title_words = main_product['title'].split()
+            if len(title_words) > 0:
+                main_brand = title_words[0]
+
         system_prompt = """You are a product data engineer creating realistic similar products for an e-commerce demo.
 Generate products that are semantically similar but distinct from the main product.
 Products should vary in:
 - Specific features (size, color, model, version)
 - Price (±20-40% of main product)
 - Ratings (realistic variation based on quality indicators)
-- Brand (include both same brand and competitor brands)
+- Brand (mix of same brand and 2-3 competitor brands)
 
-Keep titles concise and realistic. Return ONLY valid JSON."""
+IMPORTANT:
+- ALL products MUST be in the SAME CATEGORY as the main product
+- Include the EXACT brand name for at least 40% of similar products
+- Keep titles concise and realistic
+- Return ONLY valid JSON."""
 
         user_prompt = f"""Generate {count} similar products to this main product:
 
 Title: {main_product['title']}
-Brand: {main_product.get('brand', 'Unknown')}
+Brand: {main_brand}
+Category: {category}
 Price: ${main_product.get('price', 0):.2f}
 Rating: {main_product.get('star_rating', 0)} stars
 
@@ -107,8 +123,8 @@ Return JSON array with these fields for each product:
 [
   {{
     "item_id": "unique 10-char alphanumeric ASIN like B08XYZ1234",
-    "title": "product title (similar but distinct)",
-    "brand": "brand name (same or competitor)",
+    "title": "product title (similar but distinct, SAME category)",
+    "brand": "brand name (use '{main_brand}' for ~40% of products, competitors for rest)",
     "description": "brief 1-2 sentence description",
     "price": price as number,
     "star_rating": rating 1.0-5.0 as number,
@@ -116,7 +132,8 @@ Return JSON array with these fields for each product:
   }}
 ]
 
-Generate diverse, realistic variations."""
+CRITICAL: All products MUST be {category} products similar to the main product.
+Generate diverse, realistic variations of the SAME product type."""
 
         response = self._call_llm(
             system_prompt=system_prompt,
@@ -131,15 +148,12 @@ Generate diverse, realistic variations."""
         if isinstance(products, dict):
             products = [products]
 
-        # Detect category for main product
-        category = self.detect_category(main_product['title'])
-
         # Add mock data tracking fields and category
         for product in products:
             product['is_mock'] = True
             product['product_url'] = f"https://amazon.com/dp/{product['item_id']}"
             product['photos'] = self._generate_placeholder_photos()
-            product['category'] = category
+            product['category'] = category  # Use category detected earlier
 
             # Generate embeddings if requested
             if generate_embeddings:
