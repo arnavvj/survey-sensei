@@ -175,6 +175,121 @@ Generate diverse, realistic variations of the SAME product type."""
 
         return products
 
+    def generate_diverse_products(
+        self,
+        count: int = 3,
+        use_cache: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate completely different products for organic ecosystem diversity
+        These products are from various categories to simulate a real marketplace
+
+        Args:
+            count: Number of diverse products to generate
+            use_cache: Whether to use cached data
+
+        Returns:
+            List of diverse product dictionaries
+        """
+        import hashlib
+        import time
+
+        # Check cache first
+        if use_cache:
+            cache_key = self._get_cache_key(
+                endpoint="diverse-products",
+                count=count,
+                timestamp=int(time.time() / 3600)  # Cache for 1 hour
+            )
+            cached_data = self._get_cached_data(cache_key) if hasattr(self, '_get_cached_data') else None
+            if cached_data:
+                return cached_data
+
+        # Add timestamp-based seed for variation
+        seed = hashlib.md5(f"{time.time()}{count}".encode()).hexdigest()[:8]
+
+        system_prompt = """You are a product catalog engineer creating diverse products for an e-commerce marketplace.
+Generate products from COMPLETELY DIFFERENT categories to create organic diversity.
+
+DIVERSITY REQUIREMENTS:
+- Each product MUST be from a DIFFERENT category
+- Mix categories: electronics, home, sports, beauty, books, toys, fashion, kitchen, etc.
+- Vary price points widely ($10-$500)
+- Realistic brands for each category
+- Diverse ratings (3.5-5.0 stars)
+
+Return ONLY valid JSON."""
+
+        user_prompt = f"""Generate {count} COMPLETELY DIFFERENT products from various categories.
+
+Uniqueness seed: {seed}
+
+Return JSON array with these fields for each product:
+[
+  {{
+    "item_id": "unique 10-char alphanumeric ASIN like B08XYZ1234",
+    "title": "product title (specific and realistic)",
+    "brand": "appropriate brand for this product category",
+    "category": "specific category (electronics, home, sports, beauty, etc.)",
+    "description": "brief 1-2 sentence description",
+    "price": price as number (vary widely: $10-$500),
+    "star_rating": rating 3.5-5.0 as number,
+    "num_ratings": count as number (100-3000 range)
+  }}
+]
+
+CRITICAL: Each product must be from a COMPLETELY DIFFERENT category. Create organic marketplace diversity."""
+
+        response = self._call_llm(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=1000,
+            temperature=1.0  # Maximum creativity for diversity
+        )
+
+        products = self._parse_json_response(response)
+
+        # Ensure products is a list
+        if isinstance(products, dict):
+            products = [products]
+
+        # Add mock data tracking fields
+        for product in products:
+            product['is_mock'] = True
+            product['product_url'] = f"https://amazon.com/dp/{product['item_id']}"
+            product['photos'] = self._generate_placeholder_photos()
+            # category already set by LLM
+            product['embeddings'] = None
+
+        products = products[:count]
+
+        # Cache the results
+        if use_cache and hasattr(self, '_save_to_cache'):
+            cache_key = self._get_cache_key(
+                endpoint="diverse-products",
+                count=count,
+                timestamp=int(time.time() / 3600)
+            )
+            self._save_to_cache(cache_key, products)
+
+        return products
+
+    def _get_cache_key(self, **params) -> str:
+        """Generate cache key from parameters"""
+        import json
+        import hashlib
+        sorted_params = json.dumps(params, sort_keys=True)
+        return hashlib.md5(sorted_params.encode()).hexdigest()
+
+    def _get_cached_data(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        """Retrieve cached data if available"""
+        return self.cache.get(cache_key=cache_key) if hasattr(self.cache, 'get') else None
+
+    def _save_to_cache(self, cache_key: str, data: List[Dict[str, Any]]) -> None:
+        """Save data to cache"""
+        if hasattr(self.cache, 'set'):
+            self.cache.set(data, cache_key=cache_key)
+
     def _generate_placeholder_photos(self) -> List[str]:
         """Generate placeholder photo URLs"""
         # Use a placeholder image service for demo

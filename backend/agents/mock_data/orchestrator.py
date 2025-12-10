@@ -69,7 +69,15 @@ class MockDataOrchestrator:
             generate_embeddings=scenario_config.get('generate_embeddings', False)
         )
         all_products.extend(similar_products)
-        logger.info(f"✅ Products: 1 main + {len(similar_products)} similar = {len(all_products)} total")
+
+        # 1.c: Generate diverse/different products for organic ecosystem
+        diverse_product_count = scenario_config.get('diverse_product_count', 3)
+        diverse_products = self.pdt_agent.generate_diverse_products(
+            count=diverse_product_count,
+            use_cache=self.use_cache
+        )
+        all_products.extend(diverse_products)
+        logger.info(f"✅ Products: 1 main + {len(similar_products)} similar + {len(diverse_products)} diverse = {len(all_products)} total")
 
         # 1.c: Initialize user_df with main user
         main_user = self.usr_agent.generate_main_user(form_data)
@@ -258,6 +266,35 @@ class MockDataOrchestrator:
 
         else:
             logger.info("⏭️  STEP 4: Main user did NOT purchase similar products - skipping all user branches")
+
+        # ============================================================
+        # STEP 5: Generate minimal activity for diverse products
+        # ============================================================
+        if diverse_products:
+            logger.info("🌈 STEP 5: Generating minimal organic activity for diverse products...")
+
+            for diverse_product in diverse_products:
+                # Generate minimal reviews (2-5 per diverse product)
+                minimal_review_count = random.randint(2, 5)
+                diverse_reviews, diverse_txns = self.rvw_agent._generate_reviews_with_sentiment(
+                    product=diverse_product,
+                    users=mock_users,
+                    count=minimal_review_count,
+                    sentiment=random.choice(['good', 'good', 'neutral'])  # Mostly positive or neutral
+                )
+                reviews.extend(diverse_reviews)
+                transactions.extend(diverse_txns)
+
+                # Generate additional transactions (10-30% more than reviews)
+                extra_diverse_txns = self.trx_agent.generate_additional_transactions(
+                    product=diverse_product,
+                    users=mock_users,
+                    existing_transactions=transactions,
+                    multiplier=random.uniform(1.1, 1.3)  # 10-30% more transactions
+                )
+                transactions.extend(extra_diverse_txns)
+
+            logger.info(f"✅ Added minimal activity for {len(diverse_products)} diverse products")
 
         # ============================================================
         # FINAL: Calculate Statistics
