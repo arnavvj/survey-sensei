@@ -196,13 +196,16 @@ class RapidAPIClient:
 
             product_data = response["data"]
 
+            # Extract price from multiple possible fields
+            price = self._extract_product_price(product_data)
+
             # Transform to our database format
             product = {
                 'item_id': product_data.get('asin', asin),
                 'title': product_data.get('product_title', ''),
                 'brand': product_data.get('product_brand', 'Unknown'),
                 'description': product_data.get('product_description', ''),
-                'price': self._parse_price(product_data.get('product_price')),
+                'price': price,
                 'star_rating': float(product_data.get('product_star_rating', 0)),
                 'num_ratings': int(product_data.get('product_num_ratings', 0)),
                 'product_url': product_data.get('product_url', f'https://amazon.com/dp/{asin}'),
@@ -302,6 +305,38 @@ class RapidAPIClient:
         except Exception as e:
             logger.error(f"Failed to fetch reviews for {asin}: {str(e)}")
             return []
+
+    def _extract_product_price(self, product_data: Dict[str, Any]) -> float:
+        """
+        Extract price from product data, checking multiple fields
+        RapidAPI may provide price in different fields depending on product availability
+
+        Args:
+            product_data: Product data from RapidAPI response
+
+        Returns:
+            Price as float, or 0.0 if not found
+        """
+        # Try multiple price field possibilities based on actual RapidAPI response structure
+        price_fields = [
+            'product_price',                 # Standard price field (e.g., "40.00" or "$40.00")
+            'product_original_price',        # Original price before discount (e.g., "$45.00")
+            'product_minimum_offer_price',   # Minimum offer price from sellers
+            'minimum_order_quantity',        # Sometimes contains price info
+        ]
+
+        for field in price_fields:
+            price_value = product_data.get(field)
+            if price_value is not None and price_value != "":
+                parsed_price = self._parse_price(price_value)
+                if parsed_price > 0:
+                    logger.info(f"✅ Extracted price ${parsed_price:.2f} from field: '{field}'")
+                    return parsed_price
+
+        # If no price found, log the available fields for debugging
+        logger.warning(f"⚠️  No valid price found for product ASIN: {product_data.get('asin')}")
+        logger.warning(f"Available price fields: product_price={product_data.get('product_price')}, product_original_price={product_data.get('product_original_price')}")
+        return 0.0
 
     def _parse_price(self, price_str: Any) -> float:
         """
