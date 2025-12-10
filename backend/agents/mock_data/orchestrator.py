@@ -83,13 +83,25 @@ class MockDataOrchestrator:
         main_user = self.usr_agent.generate_main_user(form_data)
         all_users = [main_user]
 
-        # 1.d: Generate and append mock users
+        # 1.d: Calculate realistic user count based on expected reviews
+        # Realistic e-commerce: users >> transactions >> reviews
+        # For warm products: users = reviews * 1.5 (60-70% purchase rate among interested users)
+        # For cold products: users = similar_product_reviews * 1.2
+        expected_main_reviews = scenario_config.get('main_product_reviews', 100)
+        expected_similar_reviews = scenario_config.get('similar_product_reviews', 20) * scenario_config.get('similar_product_count', 5)
+        total_expected_reviews = expected_main_reviews + expected_similar_reviews
+
+        # Calculate user count: Need enough users so each buys max 1-2 products
+        # Users = (total reviews * 1.5) to ensure realistic sparsity
+        calculated_user_count = max(int(total_expected_reviews * 1.5), scenario_config.get('mock_user_count', 15))
+
+        # Generate and append mock users
         mock_users = self.usr_agent.generate_mock_users(
             main_user=main_user,
-            count=scenario_config.get('mock_user_count', 15)
+            count=calculated_user_count
         )
         all_users.extend(mock_users)
-        logger.info(f"✅ Users: 1 main + {len(mock_users)} mock = {len(all_users)} total")
+        logger.info(f"✅ Users: 1 main + {len(mock_users)} mock = {len(all_users)} total (calculated for realistic sparsity)")
 
         # Initialize empty reviews and transactions lists
         reviews = []
@@ -137,15 +149,32 @@ class MockDataOrchestrator:
             transactions.extend(additional_transactions)
             logger.info(f"✅ Added {len(additional_reviews)} sentiment-spread reviews for main product")
 
-            # 2.3: Generate additional transactions (sparse but rich)
-            extra_main_transactions = self.trx_agent.generate_additional_transactions(
-                product=main_product,
-                users=mock_users,
-                existing_transactions=transactions,
-                multiplier=1.5  # transactions = reviews * 1.5
-            )
+            # 2.3: Generate additional transactions (purchases WITHOUT reviews)
+            # Realistic: 40-60% of purchasers leave reviews, so transactions = reviews / 0.5
+            # But ensure no user buys same product multiple times
+            target_transactions = int(len([r for r in reviews if r['item_id'] == main_product['item_id']]) / 0.6)
+            current_transactions = len([t for t in transactions if t['item_id'] == main_product['item_id']])
+            additional_needed = max(0, target_transactions - current_transactions)
+
+            # Find users who haven't purchased this product yet
+            users_who_purchased = set(t['user_id'] for t in transactions if t['item_id'] == main_product['item_id'])
+            available_users = [u for u in mock_users if u['user_id'] not in users_who_purchased]
+
+            # Generate transactions from new users only
+            extra_count = min(additional_needed, len(available_users))
+            extra_main_transactions = []
+            for i in range(extra_count):
+                user = available_users[i]
+                transaction = self.trx_agent._create_transaction(
+                    user=user,
+                    product=main_product,
+                    days_ago=random.randint(30, 730),
+                    is_mock=True
+                )
+                extra_main_transactions.append(transaction)
+
             transactions.extend(extra_main_transactions)
-            logger.info(f"✅ Added {len(extra_main_transactions)} additional transactions for main product")
+            logger.info(f"✅ Added {len(extra_main_transactions)} additional transactions (purchases without reviews) for main product")
 
         else:
             logger.info("⏭️  STEP 2: Main product has NO reviews - skipping...")
@@ -168,15 +197,28 @@ class MockDataOrchestrator:
             transactions.extend(similar_transactions)
             logger.info(f"✅ Added {len(similar_reviews)} reviews for similar products")
 
-            # Generate additional transactions for similar products
+            # Generate additional transactions for similar products (purchases without reviews)
             for product in similar_products:
-                extra_txns = self.trx_agent.generate_additional_transactions(
-                    product=product,
-                    users=mock_users,
-                    existing_transactions=transactions,
-                    multiplier=1.8  # More transactions than reviews
-                )
-                transactions.extend(extra_txns)
+                product_reviews = [r for r in reviews if r['item_id'] == product['item_id']]
+                target_transactions = int(len(product_reviews) / 0.6) if len(product_reviews) > 0 else 0
+                current_transactions = len([t for t in transactions if t['item_id'] == product['item_id']])
+                additional_needed = max(0, target_transactions - current_transactions)
+
+                # Find users who haven't purchased this product yet
+                users_who_purchased = set(t['user_id'] for t in transactions if t['item_id'] == product['item_id'])
+                available_users = [u for u in mock_users if u['user_id'] not in users_who_purchased]
+
+                # Generate transactions from new users only
+                extra_count = min(additional_needed, len(available_users))
+                for i in range(extra_count):
+                    user = available_users[i]
+                    transaction = self.trx_agent._create_transaction(
+                        user=user,
+                        product=product,
+                        days_ago=random.randint(30, 730),
+                        is_mock=True
+                    )
+                    transactions.append(transaction)
 
             logger.info(f"✅ Total transactions for similar products: {len([t for t in transactions if t['item_id'] in [p['item_id'] for p in similar_products]])}")
 
@@ -186,13 +228,13 @@ class MockDataOrchestrator:
         # ============================================================
         # STEP 4: DECISION - userPurchasedSimilar?
         # ============================================================
-        user_purchased_similar = form_data.get('userPurchasedSimilar') == 'yes'
+        user_purchased_similar = form_data.get('userPurchasedSimilar') == 'YES'
 
         if user_purchased_similar:
             logger.info("👤 STEP 4: Main user purchased similar products - processing...")
 
             # SUB-BRANCH A: userReviewedSimilar?
-            user_reviewed_similar = form_data.get('userReviewedSimilar') == 'yes'
+            user_reviewed_similar = form_data.get('userReviewedSimilar') == 'YES'
 
             if user_reviewed_similar:
                 logger.info("✍️  Sub-branch A: Main user reviewed similar products")
@@ -230,7 +272,7 @@ class MockDataOrchestrator:
                 logger.info(f"✅ Added {len(main_user_purchase_txns)} main user transactions (no reviews)")
 
             # SUB-BRANCH B: userPurchasedExact?
-            user_purchased_exact = form_data.get('userPurchasedExact') == 'yes'
+            user_purchased_exact = form_data.get('userPurchasedExact') == 'YES'
 
             if user_purchased_exact:
                 logger.info("🎯 Sub-branch B: Main user purchased exact product")
@@ -244,7 +286,7 @@ class MockDataOrchestrator:
                 logger.info(f"✅ Added main user exact product transaction")
 
                 # Check if user reviewed exact product
-                user_reviewed_exact = form_data.get('userReviewedExact') == 'yes'
+                user_reviewed_exact = form_data.get('userReviewedExact') == 'YES'
 
                 if user_reviewed_exact:
                     logger.info("⭐ Main user reviewed exact product")
@@ -285,14 +327,26 @@ class MockDataOrchestrator:
                 reviews.extend(diverse_reviews)
                 transactions.extend(diverse_txns)
 
-                # Generate additional transactions (10-30% more than reviews)
-                extra_diverse_txns = self.trx_agent.generate_additional_transactions(
-                    product=diverse_product,
-                    users=mock_users,
-                    existing_transactions=transactions,
-                    multiplier=random.uniform(1.1, 1.3)  # 10-30% more transactions
-                )
-                transactions.extend(extra_diverse_txns)
+                # Generate additional transactions (purchases without reviews)
+                # Minimal activity: only 1-2 additional purchases per diverse product
+                product_reviews = [r for r in reviews if r['item_id'] == diverse_product['item_id']]
+                additional_purchases = random.randint(1, 2)
+
+                # Find users who haven't purchased this product yet
+                users_who_purchased = set(t['user_id'] for t in transactions if t['item_id'] == diverse_product['item_id'])
+                available_users = [u for u in mock_users if u['user_id'] not in users_who_purchased]
+
+                # Generate transactions from new users only
+                extra_count = min(additional_purchases, len(available_users))
+                for i in range(extra_count):
+                    user = available_users[i]
+                    transaction = self.trx_agent._create_transaction(
+                        user=user,
+                        product=diverse_product,
+                        days_ago=random.randint(30, 730),
+                        is_mock=True
+                    )
+                    transactions.append(transaction)
 
             logger.info(f"✅ Added minimal activity for {len(diverse_products)} diverse products")
 
@@ -312,11 +366,16 @@ class MockDataOrchestrator:
         main_user_reviews = [r for r in reviews if r['user_id'] == main_user_id]
         main_user_products = len(set(t['item_id'] for t in main_user_transactions))
 
+        # Calculate sparsity metrics
+        avg_purchases_per_user_main = len(main_product_transactions) / main_product_users if main_product_users > 0 else 0
+        review_rate_main = (len(main_product_reviews) / len(main_product_transactions) * 100) if len(main_product_transactions) > 0 else 0
+
         logger.info(f"📊 Final Stats:")
         logger.info(f"   Products: {len(all_products)} | Users: {len(all_users)}")
         logger.info(f"   Transactions: {len(transactions)} | Reviews: {len(reviews)}")
-        logger.info(f"   Main Product: {len(main_product_transactions)} txns, {len(main_product_reviews)} reviews")
-        logger.info(f"   Main User: {len(main_user_transactions)} txns, {len(main_user_reviews)} reviews")
+        logger.info(f"   Main Product: {len(main_product_transactions)} txns, {len(main_product_reviews)} reviews, {main_product_users} unique buyers")
+        logger.info(f"   Main Product Sparsity: {avg_purchases_per_user_main:.2f} purchases/user, {review_rate_main:.1f}% review rate")
+        logger.info(f"   Main User: {len(main_user_transactions)} txns, {len(main_user_reviews)} reviews, {main_user_products} different products")
 
         result = {
             'products': all_products,

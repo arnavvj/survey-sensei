@@ -9,20 +9,21 @@ from typing import Dict, Any
 # Scenario configurations for all 12 scenarios
 SCENARIO_CONFIGS = {
     # Group A: Warm Product + Warm User (4 scenarios)
+    # Scaled down entire ecosystem: ~25 main reviews, ~15 similar reviews per product
     'A1': {
         'scenario_id': 'A1',
         'group': 'warm_warm',
         'similar_product_count': 5,
         'diverse_product_count': 3,  # Organic ecosystem diversity
         'mock_user_count': 20,
-        'main_product_reviews': 100,
-        'similar_product_reviews': 20,
+        'main_product_reviews': 25,  # Scaled down from 100
+        'similar_product_reviews': 15,  # Scaled down from 20
         'main_user_exact_purchases': 1,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 1,
         'main_user_similar_reviews': 3,
-        'api_review_count': 100,  # Use RapidAPI reviews
-        'reviews_per_product': 20,
+        'api_review_count': 25,  # Use first 25 scraped reviews
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'A2': {
@@ -31,14 +32,14 @@ SCENARIO_CONFIGS = {
         'similar_product_count': 5,
         'diverse_product_count': 3,
         'mock_user_count': 20,
-        'main_product_reviews': 100,
-        'similar_product_reviews': 20,
+        'main_product_reviews': 25,
+        'similar_product_reviews': 15,
         'main_user_exact_purchases': 1,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 1,
         'main_user_similar_reviews': 0,
-        'api_review_count': 100,
-        'reviews_per_product': 20,
+        'api_review_count': 25,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'A3': {
@@ -47,14 +48,14 @@ SCENARIO_CONFIGS = {
         'similar_product_count': 5,
         'diverse_product_count': 3,
         'mock_user_count': 20,
-        'main_product_reviews': 100,
-        'similar_product_reviews': 20,
+        'main_product_reviews': 25,
+        'similar_product_reviews': 15,
         'main_user_exact_purchases': 1,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 3,
-        'api_review_count': 100,
-        'reviews_per_product': 20,
+        'api_review_count': 25,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'A4': {
@@ -63,18 +64,19 @@ SCENARIO_CONFIGS = {
         'similar_product_count': 5,
         'diverse_product_count': 3,
         'mock_user_count': 20,
-        'main_product_reviews': 100,
-        'similar_product_reviews': 20,
+        'main_product_reviews': 25,
+        'similar_product_reviews': 15,
         'main_user_exact_purchases': 1,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 0,
-        'api_review_count': 100,
-        'reviews_per_product': 20,
+        'api_review_count': 25,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
 
     # Group B: Cold Product + Warm User (4 scenarios)
+    # Scaled down entire ecosystem: ~15 similar reviews per product
     'B1': {
         'scenario_id': 'B1',
         'group': 'cold_warm',
@@ -82,13 +84,13 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 15,
         'main_product_reviews': 0,  # Cold product
-        'similar_product_reviews': 30,
+        'similar_product_reviews': 15,  # Scaled down from 40
         'main_user_exact_purchases': 0,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 3,
         'api_review_count': 0,  # No API reviews for cold product
-        'reviews_per_product': 30,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'B2': {
@@ -98,13 +100,13 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 15,
         'main_product_reviews': 0,
-        'similar_product_reviews': 30,
+        'similar_product_reviews': 15,  # Scaled down from 40
         'main_user_exact_purchases': 0,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
-        'reviews_per_product': 30,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'B3': {
@@ -114,13 +116,13 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 15,
         'main_product_reviews': 0,
-        'similar_product_reviews': 30,
+        'similar_product_reviews': 15,  # Scaled down from 40
         'main_user_exact_purchases': 1,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 3,
         'api_review_count': 0,
-        'reviews_per_product': 30,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'B4': {
@@ -130,17 +132,18 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 15,
         'main_product_reviews': 0,
-        'similar_product_reviews': 30,
+        'similar_product_reviews': 15,  # Scaled down from 40
         'main_user_exact_purchases': 1,
         'main_user_similar_purchases': 3,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
-        'reviews_per_product': 30,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
 
     # Group C: Cold Product + Cold User (4 scenarios)
+    # Scaled down entire ecosystem: ~15 similar reviews per product
     'C1': {
         'scenario_id': 'C1',
         'group': 'cold_cold',
@@ -148,13 +151,13 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 10,
         'main_product_reviews': 0,
-        'similar_product_reviews': 25,
+        'similar_product_reviews': 15,  # Scaled down from 30
         'main_user_exact_purchases': 0,
         'main_user_similar_purchases': 0,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 2,  # Reviews without purchases
         'api_review_count': 0,
-        'reviews_per_product': 25,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'C2': {
@@ -164,13 +167,13 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 10,
         'main_product_reviews': 0,
-        'similar_product_reviews': 25,
+        'similar_product_reviews': 15,  # Scaled down from 30
         'main_user_exact_purchases': 0,
         'main_user_similar_purchases': 0,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
-        'reviews_per_product': 25,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'C3': {
@@ -180,13 +183,13 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 10,
         'main_product_reviews': 0,
-        'similar_product_reviews': 25,
+        'similar_product_reviews': 15,  # Scaled down from 30
         'main_user_exact_purchases': 1,
         'main_user_similar_purchases': 0,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
-        'reviews_per_product': 25,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
     'C4': {
@@ -196,13 +199,13 @@ SCENARIO_CONFIGS = {
         'diverse_product_count': 3,
         'mock_user_count': 10,
         'main_product_reviews': 0,
-        'similar_product_reviews': 25,
+        'similar_product_reviews': 15,  # Scaled down from 30
         'main_user_exact_purchases': 0,
         'main_user_similar_purchases': 2,
         'main_user_exact_reviews': 0,
         'main_user_similar_reviews': 0,
         'api_review_count': 0,
-        'reviews_per_product': 25,
+        'reviews_per_product': 15,
         'generate_embeddings': False,
     },
 }

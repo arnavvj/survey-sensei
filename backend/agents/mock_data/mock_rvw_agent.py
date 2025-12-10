@@ -56,10 +56,9 @@ class MockReviewAgent(BaseMockAgent):
                 'review_title': api_review.get('review_title', 'Great product'),
                 'review_text': api_review.get('review_comment', 'Good quality product.'),
                 'review_stars': int(api_review.get('review_star_rating', 5)),
-                'source': 'rapidapi_scraped',  # ORIGINAL data
-                'manual_or_agent_generated': 'scraped',
+                'source': 'rapidapi',  # Scraped from Amazon via RapidAPI
+                'manual_or_agent_generated': 'manual',  # Human-written review text
                 'embeddings': None,
-                'is_mock': True,  # Still mock users, but real review text
                 'created_at': datetime.now().isoformat(),
                 'updated_at': datetime.now().isoformat(),
             }
@@ -155,8 +154,18 @@ class MockReviewAgent(BaseMockAgent):
         count: int,
         sentiment: str
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """Generate reviews with specific sentiment"""
-        system_prompt = f"""You are a review generator creating realistic {sentiment} product reviews.
+        """Generate reviews with specific sentiment (batched for large counts)"""
+        reviews = []
+        transactions = []
+
+        # Generate in batches of 10 to avoid token limits
+        batch_size = 10
+        remaining = count
+
+        while remaining > 0:
+            batch_count = min(batch_size, remaining)
+
+            system_prompt = f"""You are a review generator creating realistic {sentiment} product reviews.
 
 Sentiment Guidelines:
 - good: 4-5 stars, positive tone, praise features/quality/value
@@ -165,7 +174,7 @@ Sentiment Guidelines:
 
 Return ONLY valid JSON."""
 
-        user_prompt = f"""Generate {count} {sentiment} reviews for this product:
+            user_prompt = f"""Generate {batch_count} {sentiment} reviews for this product:
 
 Product: {product['title']}
 Brand: {product.get('brand', 'Unknown')}
@@ -180,48 +189,46 @@ Return JSON array:
   }}
 ]"""
 
-        response = self._call_llm(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=800,
-            temperature=0.9
-        )
-
-        generated_reviews_data = self._parse_json_response(response)
-        if isinstance(generated_reviews_data, dict):
-            generated_reviews_data = [generated_reviews_data]
-
-        reviews = []
-        transactions = []
-
-        for review_data in generated_reviews_data[:count]:
-            user = random.choice(users)
-
-            # Create transaction first
-            transaction = self.trx_agent.create_transaction_for_review(
-                user=user,
-                product=product
+            response = self._call_llm(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=800,
+                temperature=0.9
             )
-            transactions.append(transaction)
 
-            # Create review
-            review = {
-                'review_id': str(uuid.uuid4()),
-                'item_id': product['item_id'],
-                'user_id': user['user_id'],
-                'transaction_id': transaction['transaction_id'],
-                'timestamp': transaction['delivery_date'],
-                'review_title': review_data['review_title'],
-                'review_text': review_data['review_text'],
-                'review_stars': review_data['review_stars'],
-                'source': 'agent_generated',
-                'manual_or_agent_generated': 'agent',
-                'embeddings': None,
-                'is_mock': True,
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat(),
-            }
-            reviews.append(review)
+            generated_reviews_data = self._parse_json_response(response)
+            if isinstance(generated_reviews_data, dict):
+                generated_reviews_data = [generated_reviews_data]
+
+            for review_data in generated_reviews_data[:batch_count]:
+                user = random.choice(users)
+
+                # Create transaction first
+                transaction = self.trx_agent.create_transaction_for_review(
+                    user=user,
+                    product=product
+                )
+                transactions.append(transaction)
+
+                # Create review
+                review = {
+                    'review_id': str(uuid.uuid4()),
+                    'item_id': product['item_id'],
+                    'user_id': user['user_id'],
+                    'transaction_id': transaction['transaction_id'],
+                    'timestamp': transaction['delivery_date'],
+                    'review_title': review_data['review_title'],
+                    'review_text': review_data['review_text'],
+                    'review_stars': review_data['review_stars'],
+                    'source': 'agent_generated',  # Generated by MOCK_RVW_MINI_AGENT
+                    'manual_or_agent_generated': 'agent',  # AI-generated review text
+                    'embeddings': None,
+                    'created_at': datetime.now().isoformat(),
+                    'updated_at': datetime.now().isoformat(),
+                }
+                reviews.append(review)
+
+            remaining -= batch_count
 
         return reviews, transactions
 
@@ -322,10 +329,9 @@ Return:
                 'review_title': review_data['review_title'],
                 'review_text': review_data['review_text'],
                 'review_stars': review_data['review_stars'],
-                'source': 'agent_generated',
-                'manual_or_agent_generated': 'agent',
+                'source': 'agent_generated',  # Generated for main user
+                'manual_or_agent_generated': 'agent',  # AI-generated review text
                 'embeddings': None,
-                'is_mock': False,  # Main user review
                 'created_at': datetime.now().isoformat(),
                 'updated_at': datetime.now().isoformat(),
             }
@@ -382,10 +388,9 @@ Return:
             'review_title': review_data['review_title'],
             'review_text': review_data['review_text'],
             'review_stars': review_data['review_stars'],
-            'source': 'agent_generated',
-            'manual_or_agent_generated': 'agent',
+            'source': 'agent_generated',  # Generated for main user
+            'manual_or_agent_generated': 'agent',  # AI-generated review text
             'embeddings': None,
-            'is_mock': False,  # Main user review
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat(),
         }

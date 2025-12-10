@@ -91,10 +91,22 @@ class BaseMockAgent:
             # Attempt to extract JSON from markdown code blocks
             if "```json" in response:
                 json_str = response.split("```json")[1].split("```")[0].strip()
-                return json.loads(json_str)
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e2:
+                    logger.error(f"Failed to parse JSON from code block. Error: {e2}")
+                    logger.error(f"Response preview (first 500 chars): {response[:500]}")
+                    raise ValueError(f"Failed to parse JSON response: {e2}")
             elif "```" in response:
                 json_str = response.split("```")[1].split("```")[0].strip()
-                return json.loads(json_str)
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError as e2:
+                    logger.error(f"Failed to parse JSON from code block. Error: {e2}")
+                    logger.error(f"Response preview (first 500 chars): {response[:500]}")
+                    raise ValueError(f"Failed to parse JSON response: {e2}")
+            logger.error(f"No JSON found in response. Error: {e}")
+            logger.error(f"Response preview (first 500 chars): {response[:500]}")
             raise ValueError(f"Failed to parse JSON response: {e}")
 
     def generate_embeddings(self, texts: List[str]) -> List[List[float]]:

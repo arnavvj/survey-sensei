@@ -31,9 +31,14 @@ class MockTransactionAgent:
         expected_delivery = order_date + timedelta(days=random.randint(3, 5))
 
         original_price = float(product.get('price', 0))
+        # If price is 0 or invalid, use a realistic default price
+        if original_price <= 0:
+            original_price = random.uniform(19.99, 149.99)  # Random realistic price
         # Apply random discount (0-20%)
         discount = random.uniform(0, 0.20)
         retail_price = original_price * (1 - discount)
+        # Ensure retail_price meets minimum threshold (e.g., $5 minimum)
+        retail_price = max(retail_price, 5.00)
 
         # Determine status
         status_weights = [

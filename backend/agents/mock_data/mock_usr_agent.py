@@ -94,9 +94,17 @@ Locations: Mix NYC, Austin, Portland, Nashville, Boulder, Boise, Asheville, etc.
 
 Return ONLY valid JSON."""
 
-        user_prompt = f"""Generate {count} HIGHLY DIVERSE and UNIQUE user personas.
+        # Generate users in batches of 20 to avoid JSON parsing errors
+        all_users = []
+        batch_size = 20
+        remaining = count
 
-Uniqueness seed: {seed}
+        while remaining > 0:
+            batch_count = min(batch_size, remaining)
+
+            user_prompt = f"""Generate {batch_count} HIGHLY DIVERSE and UNIQUE user personas.
+
+Uniqueness seed: {seed}-{len(all_users)}
 
 Context (for demographic VARIETY - create users DIFFERENT from this):
 Main user age: {main_user['age']}
@@ -117,18 +125,23 @@ Return JSON array with these fields for each user:
 IMPORTANT: Make each user distinctly DIFFERENT from others. Avoid patterns like all similar ages or all big cities.
 Be creative with names (traditional, modern, multicultural mix). Vary email styles. Spread ages widely."""
 
-        response = self._call_llm(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=1500,  # Higher for multiple users
-            temperature=1.0  # Maximum creativity for diverse users
-        )
+            response = self._call_llm(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=1500,  # Higher for multiple users
+                temperature=1.0  # Maximum creativity for diverse users
+            )
 
-        users = self._parse_json_response(response)
+            users_batch = self._parse_json_response(response)
 
-        # Ensure users is a list
-        if isinstance(users, dict):
-            users = [users]
+            # Ensure users is a list
+            if isinstance(users_batch, dict):
+                users_batch = [users_batch]
+
+            all_users.extend(users_batch[:batch_count])
+            remaining -= batch_count
+
+        users = all_users
 
         # Add system fields
         import uuid
