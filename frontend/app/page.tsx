@@ -813,10 +813,13 @@ export default function HomePage() {
       if (result.success) {
         setMockDataSummary(result.summary)
         setIsSubmitted(true)
-        // Scroll Summary pane to top after form submission
+        // Scroll window and Summary pane to top instantly
         setTimeout(() => {
-          summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-        }, 200)
+          window.scrollTo({ top: 0, behavior: 'auto' })
+          if (summaryPaneRef.current) {
+            summaryPaneRef.current.scrollTop = 0
+          }
+        }, 100)
       } else {
         alert(`Error: ${result.error}`)
       }
@@ -840,7 +843,7 @@ export default function HomePage() {
         }
       }, 150)
     }
-  }, [canSubmit, isSubmitted])
+  }, [canSubmit])
 
   // Calculate pane widths based on state
   const getSurveyPaneWidth = () => {
