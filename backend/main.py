@@ -250,10 +250,46 @@ async def generate_mock_data(request: GenerateMockDataRequest):
 
         # STEP 5: Insert new mock data into database
         logger.info("🗄️  Inserting generated data into database...")
-        db.insert_products_batch(mock_data['products'])
-        db.insert_users_batch(mock_data['users'])
-        db.insert_transactions_batch(mock_data['transactions'])
-        db.insert_reviews_batch(mock_data['reviews'])
+
+        # Deduplicate products by item_id (keep first occurrence, which is main product)
+        seen_item_ids = set()
+        unique_products = []
+        for product in mock_data['products']:
+            if product['item_id'] not in seen_item_ids:
+                unique_products.append(product)
+                seen_item_ids.add(product['item_id'])
+            else:
+                logger.warning(f"⚠️  Skipping duplicate product: {product['item_id']}")
+
+        # Deduplicate users by user_id
+        seen_user_ids = set()
+        unique_users = []
+        for user in mock_data['users']:
+            if user['user_id'] not in seen_user_ids:
+                unique_users.append(user)
+                seen_user_ids.add(user['user_id'])
+
+        # Deduplicate transactions by transaction_id
+        seen_transaction_ids = set()
+        unique_transactions = []
+        for transaction in mock_data['transactions']:
+            if transaction['transaction_id'] not in seen_transaction_ids:
+                unique_transactions.append(transaction)
+                seen_transaction_ids.add(transaction['transaction_id'])
+
+        # Deduplicate reviews by review_id
+        seen_review_ids = set()
+        unique_reviews = []
+        for review in mock_data['reviews']:
+            if review['review_id'] not in seen_review_ids:
+                unique_reviews.append(review)
+                seen_review_ids.add(review['review_id'])
+
+        logger.info(f"📦 Inserting unique data: {len(unique_products)} products, {len(unique_users)} users, {len(unique_transactions)} transactions, {len(unique_reviews)} reviews")
+        db.insert_products_batch(unique_products)
+        db.insert_users_batch(unique_users)
+        db.insert_transactions_batch(unique_transactions)
+        db.insert_reviews_batch(unique_reviews)
         logger.info("✅ Database insertion complete")
 
         # Return metadata for Summary pane (DO NOT start survey yet)
