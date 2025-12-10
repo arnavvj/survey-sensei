@@ -211,6 +211,10 @@ export default function HomePage() {
             userGender: formData.userPersona.gender,
             // Product data
             productPurchased: formData.hasMainProductReviews === 'yes' ? 'exact' : 'similar',
+            // Review data (CRITICAL for orchestrator workflow)
+            hasMainProductReviews: formData.hasMainProductReviews,
+            hasSimilarProductsReviews: formData.hasSimilarProductsReviews,
+            sentimentSpread: formData.sentimentSpread,
             // Scenario flags
             userPurchasedExact: formData.userPurchasedExact?.toUpperCase() || 'NO',
             userPurchasedSimilar: formData.userPurchasedSimilar?.toUpperCase() || 'NO',
@@ -890,6 +894,10 @@ export default function HomePage() {
             userGender: formData.userPersona.gender,
             // Product data
             productPurchased: formData.hasMainProductReviews === 'yes' ? 'exact' : 'similar',
+            // Review data (CRITICAL for orchestrator workflow)
+            hasMainProductReviews: formData.hasMainProductReviews,
+            hasSimilarProductsReviews: formData.hasSimilarProductsReviews,
+            sentimentSpread: formData.sentimentSpread,
             // Scenario flags
             userPurchasedExact: formData.userPurchasedExact?.toUpperCase() || 'NO',
             userPurchasedSimilar: formData.userPurchasedSimilar?.toUpperCase() || 'NO',
