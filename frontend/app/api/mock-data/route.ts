@@ -35,7 +35,7 @@ async function generateMockProduct(baseProduct: ProductData, index: number, isSi
     brand,
     source_platform: 'amazon',
     product_url: baseProduct.url,
-    pictures: baseProduct.images.slice(0, 3),
+    photos: baseProduct.images.slice(0, 3),
     tags: [baseProduct.brand, 'electronics', isSimilar ? 'similar' : 'alternative'].filter(Boolean),
     review_count: Math.floor(Math.random() * 500) + 10,
     embeddings: JSON.stringify(embeddings),

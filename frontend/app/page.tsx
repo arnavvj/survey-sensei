@@ -2,6 +2,7 @@
 
 import { FormData, FormStep, MockDataSummary, ProductData, ReviewOption, SurveyQuestion, SurveyResponse, SurveySession } from '@/lib/types'
 import { useEffect, useRef, useState } from 'react'
+import { logger } from '@/lib/logger'
 
 import { ProductUrlField } from '@/components/form/ProductUrlField'
 import { ReviewStatusField } from '@/components/form/ReviewStatusField'
@@ -12,6 +13,8 @@ import { SubmissionSummary } from '@/components/SubmissionSummary'
 import { UserExactProductField } from '@/components/form/UserExactProductField'
 import { UserPersonaField } from '@/components/form/UserPersonaField'
 import { UserPurchaseHistoryField } from '@/components/form/UserPurchaseHistoryField'
+import { UserReviewedSimilarField } from '@/components/form/UserReviewedSimilarField'
+import { UserReviewedExactField } from '@/components/form/UserReviewedExactField'
 
 export default function HomePage() {
   const [currentStep, setCurrentStep] = useState<FormStep>(1)
@@ -179,31 +182,57 @@ export default function HomePage() {
     }
   }
 
-  // Start survey session with backend
+  // Start survey session - now just shows the survey UI since data is already prepared
   const startSurveySession = async () => {
-    if (!mockDataSummary) return
+    if (!mockDataSummary || !formData.productData || !formData.userPersona) {
+      setSurveyError('Please complete the form and generate mock data first.')
+      return
+    }
 
     setIsLoadingSurvey(true)
     setSurveyError(null)
 
     try {
-      const response = await fetch('/api/survey/start', {
+      // SUMMARY -> SURVEY transition: Start the survey using already-generated mock data
+      const response = await fetch('http://localhost:8000/api/survey/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          user_id: mockDataSummary.mainUserId || 'unknown',
-          item_id: mockDataSummary.mainProductId || 'unknown',
-          form_data: formData,
+          user_id: mockDataSummary.mainUserId,
+          item_id: mockDataSummary.mainProductId,
+          form_data: {
+            // User data
+            userName: formData.userPersona.name,
+            userEmail: formData.userPersona.email,
+            userAge: formData.userPersona.age,
+            userLocation: formData.userPersona.location,
+            userZip: formData.userPersona.zip,
+            userGender: formData.userPersona.gender,
+            // Product data
+            productPurchased: formData.hasMainProductReviews === 'yes' ? 'exact' : 'similar',
+            // Review data (CRITICAL for orchestrator workflow)
+            hasMainProductReviews: formData.hasMainProductReviews,
+            hasSimilarProductsReviews: formData.hasSimilarProductsReviews,
+            sentimentSpread: formData.sentimentSpread,
+            // Scenario flags
+            userPurchasedExact: formData.userPurchasedExact?.toUpperCase() || 'NO',
+            userPurchasedSimilar: formData.userPurchasedSimilar?.toUpperCase() || 'NO',
+            userReviewedExact: formData.userReviewedExact?.toUpperCase() || 'NO',
+            userReviewedSimilar: formData.userReviewedSimilar?.toUpperCase() || 'NO',
+          },
         }),
       })
 
       if (!response.ok) {
-        throw new Error('Failed to start survey')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to start survey')
       }
 
       const data = await response.json()
+
+      // Initialize survey session with first question
       setSurveySession({
         session_id: data.session_id,
         question: data.question,
@@ -212,9 +241,11 @@ export default function HomePage() {
         answered_questions_count: data.answered_questions_count || 0,
         responses: [],
       })
+
+      setShowSurveyUI(true)
     } catch (error: any) {
-      console.error('Error starting survey:', error)
-      setSurveyError(error.message || 'Failed to start survey. Make sure the backend server is running.')
+      logger.apiError('Start survey', error)
+      setSurveyError(error.message || 'Failed to start survey')
     } finally {
       setIsLoadingSurvey(false)
     }
@@ -226,7 +257,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      console.log('Generating reviews for session:', sessionId)
+      logger.agent('Generating review options')
       const response = await fetch('/api/reviews/generate', {
         method: 'POST',
         headers: {
@@ -237,16 +268,14 @@ export default function HomePage() {
         }),
       })
 
-      console.log('Generate reviews response status:', response.status)
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        console.error('Generate reviews error response:', errorData)
+        logger.apiError('Generate reviews', errorData)
         throw new Error(errorData.error || `Failed to generate reviews (${response.status})`)
       }
 
       const data = await response.json()
-      console.log('Generated reviews data:', data)
+      logger.success(`${data.review_options?.length} reviews generated`)
 
       setReviewOptions(data.review_options)
       setSentimentBand(data.sentiment_band)
@@ -256,7 +285,7 @@ export default function HomePage() {
       setActivePaneIn4PaneMode('review')
       setTimeout(() => reviewPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 100)
     } catch (error: any) {
-      console.error('Error generating reviews:', error)
+      logger.apiError('Generate reviews', error)
       setSurveyError(error.message || 'Failed to generate reviews')
     } finally {
       setIsGeneratingReviews(false)
@@ -271,7 +300,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      console.log('Regenerating reviews for session:', surveySession.session_id)
+      logger.agent('Regenerating review options')
       const response = await fetch('/api/reviews/regenerate', {
         method: 'POST',
         headers: {
@@ -282,22 +311,20 @@ export default function HomePage() {
         }),
       })
 
-      console.log('Regenerate reviews response status:', response.status)
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        console.error('Regenerate reviews error response:', errorData)
+        logger.apiError('Regenerate reviews', errorData)
         throw new Error(errorData.error || `Failed to regenerate reviews (${response.status})`)
       }
 
       const data = await response.json()
-      console.log('Regenerated reviews data:', data)
+      logger.success('Reviews refreshed')
 
       setReviewOptions(data.review_options)
       setSentimentBand(data.sentiment_band)
       setSelectedReviewIndex(null) // Clear selection
     } catch (error: any) {
-      console.error('Error regenerating reviews:', error)
+      logger.apiError('Regenerate reviews', error)
       setSurveyError(error.message || 'Failed to regenerate reviews')
     } finally {
       setIsGeneratingReviews(false)
@@ -451,7 +478,7 @@ export default function HomePage() {
       setSelectedOptions([])
       setOtherText('')
     } catch (error: any) {
-      console.error('Error submitting answer:', error)
+      logger.apiError('Submit answer', error)
       setSurveyError(error.message || 'Failed to submit answer')
     } finally {
       setIsLoadingSurvey(false)
@@ -519,7 +546,7 @@ export default function HomePage() {
         })
       }
     } catch (error: any) {
-      console.error('Error skipping question:', error)
+      logger.apiError('Skip question', error)
       setSurveyError(error.message || 'Failed to skip question')
     } finally {
       setIsLoadingSurvey(false)
@@ -614,9 +641,9 @@ export default function HomePage() {
       })
       setIsReviewSubmitted(true)
 
-      console.log('Review submitted successfully:', data)
+      logger.success('Review submitted')
     } catch (error: any) {
-      console.error('Error submitting review:', error)
+      logger.apiError('Submit review', error)
       setSurveyError(error.message || 'Failed to submit review')
     } finally {
       setIsLoadingSurvey(false)
@@ -631,10 +658,7 @@ export default function HomePage() {
     setSurveyError(null)
 
     try {
-      console.log('Loading question for edit:', {
-        session_id: surveySession.session_id,
-        question_number: questionNumber,
-      })
+      logger.info(`Loading question ${questionNumber} for edit`)
 
       const response = await fetch('/api/survey/get-for-edit', {
         method: 'POST',
@@ -648,12 +672,11 @@ export default function HomePage() {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         const errorMessage = errorData.detail || errorData.error || 'Failed to load question for editing'
-        console.error('Failed to load question for editing:', errorMessage, 'Status:', response.status)
+        logger.apiError('Load question for edit', { errorMessage, status: response.status })
         throw new Error(errorMessage)
       }
 
       const data = await response.json()
-      console.log('Loaded question for edit:', data)
 
       // Save current question before entering edit mode
       if (surveySession.question) {
@@ -678,7 +701,7 @@ export default function HomePage() {
       })
 
     } catch (error: any) {
-      console.error('Error loading question for edit:', error)
+      logger.apiError('Load question for edit', error)
       setSurveyError(error.message || 'Failed to load question for editing')
     } finally {
       setIsLoadingSurvey(false)
@@ -734,7 +757,7 @@ export default function HomePage() {
       // Clear selected options for next question
       setSelectedOptions([])
     } catch (error: any) {
-      console.error('Error editing answer:', error)
+      logger.apiError('Edit answer', error)
       setSurveyError(error.message || 'Failed to edit answer')
     } finally {
       setIsLoadingSurvey(false)
@@ -757,9 +780,18 @@ export default function HomePage() {
     setCurrentStep(2) // Show Field 2
   }
 
-  const handleField2Complete = (hasReviews: 'yes' | 'no') => {
-    updateFormData({ hasReviews })
-    if (hasReviews === 'yes') {
+  const handleField2Complete = (hasMainProductReviews: 'yes' | 'no') => {
+    updateFormData({ hasMainProductReviews })
+
+    // Apply Constraint 3: Cold product cannot be purchased
+    if (hasMainProductReviews === 'no') {
+      updateFormData({
+        userPurchasedExact: 'no',
+        userReviewedExact: 'no'
+      })
+    }
+
+    if (hasMainProductReviews === 'yes') {
       setCurrentStep(3) // Go to Sentiment Spread
     } else {
       setCurrentStep(4) // Go to Similar Products
@@ -771,8 +803,8 @@ export default function HomePage() {
     setCurrentStep(5)
   }
 
-  const handleField4Complete = (hasSimilarProductsReviewed: 'yes' | 'no') => {
-    updateFormData({ hasSimilarProductsReviewed })
+  const handleField4Complete = (hasSimilarProductsReviews: 'yes' | 'no') => {
+    updateFormData({ hasSimilarProductsReviews })
     setCurrentStep(5)
   }
 
@@ -781,20 +813,49 @@ export default function HomePage() {
     setCurrentStep(6)
   }
 
-  const handleField6Complete = (userHasPurchasedSimilar: 'yes' | 'no') => {
-    updateFormData({ userHasPurchasedSimilar })
-    // Only show Field 7 if user purchased similar products
-    if (userHasPurchasedSimilar === 'yes') {
-      setCurrentStep(7)
+  const handleField6Complete = (userPurchasedSimilar: 'yes' | 'no') => {
+    updateFormData({ userPurchasedSimilar })
+
+    // Apply Constraint 1: If no similar purchases, auto-set all dependent fields
+    if (userPurchasedSimilar === 'no') {
+      updateFormData({
+        userPurchasedExact: 'no',
+        userReviewedSimilar: 'no',
+        userReviewedExact: 'no'
+      })
+      setCurrentStep(7) // Enable submit button
     } else {
-      // Skip Field 7, mark as ready for submit
-      updateFormData({ userHasPurchasedExact: 'no' })
-      setCurrentStep(7) // Still set to 7 to enable submit button
+      setCurrentStep(7) // Show userReviewedSimilar field
     }
   }
 
-  const handleField7Complete = (userHasPurchasedExact: 'yes' | 'no') => {
-    updateFormData({ userHasPurchasedExact })
+  const handleField7Complete = (userReviewedSimilar: 'yes' | 'no') => {
+    updateFormData({ userReviewedSimilar })
+
+    // Apply Constraint 2: If no reviews on similar, can't review exact
+    if (userReviewedSimilar === 'no') {
+      updateFormData({ userReviewedExact: 'no' })
+    }
+
+    setCurrentStep(8) // Show userPurchasedExact field
+  }
+
+  const handleField8Complete = (userPurchasedExact: 'yes' | 'no') => {
+    updateFormData({ userPurchasedExact })
+
+    // Apply Constraint: Can't review what you didn't purchase
+    if (userPurchasedExact === 'no') {
+      updateFormData({ userReviewedExact: 'no' })
+      setCurrentStep(9) // Enable submit button
+    } else if (formData.hasMainProductReviews === 'yes') {
+      setCurrentStep(9) // Show userReviewedExact field
+    } else {
+      setCurrentStep(9) // Enable submit button (skip userReviewedExact)
+    }
+  }
+
+  const handleField9Complete = (userReviewedExact: 'yes' | 'no') => {
+    updateFormData({ userReviewedExact })
   }
 
   const handleSubmit = async () => {
@@ -802,32 +863,188 @@ export default function HomePage() {
 
     setIsSubmitting(true)
     try {
-      const response = await fetch('/api/mock-data', {
+      // Extract ASIN from product URL (e.g., /dp/B09XYZ1234)
+      const asinMatch = formData.productData.url.match(/\/dp\/([A-Z0-9]{10})/)
+      const productId = asinMatch ? asinMatch[1] : 'unknown'
+
+      // FORM -> SUMMARY transition: Generate mock data ONLY (no survey start)
+      // This includes: RapidAPI fetch, MOCK_DATA generation, database insertion
+      const response = await fetch('http://localhost:8000/api/mock-data/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: 'temp', // Backend will generate the actual user
+          item_id: productId,
+          form_data: {
+            // User data
+            userName: formData.userPersona.name,
+            userEmail: formData.userPersona.email,
+            userAge: formData.userPersona.age,
+            userLocation: formData.userPersona.location,
+            userZip: formData.userPersona.zip,
+            userGender: formData.userPersona.gender,
+            // Product data
+            productPurchased: formData.hasMainProductReviews === 'yes' ? 'exact' : 'similar',
+            // Review data (CRITICAL for orchestrator workflow)
+            hasMainProductReviews: formData.hasMainProductReviews,
+            hasSimilarProductsReviews: formData.hasSimilarProductsReviews,
+            sentimentSpread: formData.sentimentSpread,
+            // Scenario flags
+            userPurchasedExact: formData.userPurchasedExact?.toUpperCase() || 'NO',
+            userPurchasedSimilar: formData.userPurchasedSimilar?.toUpperCase() || 'NO',
+            userReviewedExact: formData.userReviewedExact?.toUpperCase() || 'NO',
+            userReviewedSimilar: formData.userReviewedSimilar?.toUpperCase() || 'NO',
+          },
+        }),
       })
 
-      const result = await response.json()
-
-      if (result.success) {
-        setMockDataSummary(result.summary)
-        setIsSubmitted(true)
-        // Scroll Summary pane to top after form submission
-        setTimeout(() => {
-          summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-        }, 200)
-      } else {
-        alert(`Error: ${result.error}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to generate mock data')
       }
+
+      const data = await response.json()
+
+      // Determine scenario based on form data following the corrected decision tree
+      const hasMainProductReviews = formData.hasMainProductReviews === 'yes'
+      const hasSimilarProductsReviews = formData.hasSimilarProductsReviews === 'yes'
+      const userPurchasedSimilar = formData.userPurchasedSimilar === 'yes'
+      const userPurchasedExact = formData.userPurchasedExact === 'yes'
+      const userReviewedSimilar = formData.userReviewedSimilar === 'yes'
+      const userReviewedExact = formData.userReviewedExact === 'yes'
+
+      let scenarioCode = 'B2'
+      let scenarioDescription = 'Cold Product / Cold User (COLDEST)'
+
+      if (hasMainProductReviews) {
+        // Warm Product path
+        if (userPurchasedSimilar) {
+          if (userPurchasedExact) {
+            if (userReviewedExact) {
+              scenarioCode = 'A2'
+              scenarioDescription = 'Warm-Warm-Warm: User purchased AND reviewed this exact product (HOTTEST)'
+            } else {
+              scenarioCode = 'A1'
+              scenarioDescription = 'Warm-Warm-Lukewarm: User bought this product but never reviewed it'
+            }
+          } else {
+            scenarioCode = 'A1'
+            scenarioDescription = 'Warm-Warm-Cool: User bought similar products but not this exact one'
+          }
+        } else {
+          scenarioCode = 'B2'
+          scenarioDescription = 'Warm Product / Cold User: First time buying this category'
+        }
+      } else {
+        // Cold Product path
+        if (hasSimilarProductsReviews) {
+          if (userPurchasedSimilar) {
+            if (userReviewedSimilar) {
+              scenarioCode = 'C1'
+              scenarioDescription = 'Cold Product / Warm Community / Lukewarm User: User reviewed similar products'
+            } else {
+              scenarioCode = 'C2'
+              scenarioDescription = 'Cold Product / Warm Community / Cold Experience: User bought similar but never reviewed'
+            }
+          } else {
+            scenarioCode = 'B2'
+            scenarioDescription = 'Cold Product / Warm Community / Cold User'
+          }
+        } else {
+          // No similar product reviews
+          if (userPurchasedSimilar) {
+            scenarioCode = 'B1'
+            scenarioDescription = 'Cold Product Community / Lukewarm User: User has purchase history but no reviews anywhere'
+          } else {
+            scenarioCode = 'B2'
+            scenarioDescription = 'Cold Product Community / Cold User (COLDEST)'
+          }
+        }
+      }
+
+      // Cold start flags
+      const isWarmProduct = hasMainProductReviews
+      const isWarmUser = userPurchasedSimilar || userReviewedSimilar
+
+      // Create summary with REAL data from backend metadata
+      const summary: MockDataSummary = {
+        mainProductId: data.main_product_id,
+        mainUserId: data.main_user_id,
+
+        // Overall ecosystem stats
+        products: data.metadata.product_count || 0,
+        users: data.metadata.user_count || 0,
+        transactions: data.metadata.transaction_count || 0,
+        reviews: data.metadata.review_count || 0,
+
+        // Main product granular stats
+        mainProductTransactions: data.metadata.main_product_transactions || 0,
+        mainProductReviews: data.metadata.main_product_reviews || 0,
+        mainProductUsers: data.metadata.main_product_users || 0,
+
+        // Main user granular stats
+        mainUserTransactions: data.metadata.main_user_transactions || 0,
+        mainUserReviews: data.metadata.main_user_reviews || 0,
+        mainUserProducts: data.metadata.main_user_products || 0,
+
+        scenario: scenarioCode,
+        scenarioDescription: scenarioDescription,
+        coldStart: {
+          product: !isWarmProduct,
+          user: !isWarmUser,
+        },
+      }
+
+      setMockDataSummary(summary)
+
+      // DO NOT set survey session here - it will be set when user clicks "Generate Survey"
+      setIsSubmitted(true)
+
+      // Scroll Summary pane to top after form submission
+      setTimeout(() => {
+        summaryPaneRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      }, 200)
     } catch (error: any) {
-      alert(`Submission failed: ${error.message}`)
+      alert(`Data generation failed: ${error.message}. Make sure backend is running on port 8000.`)
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const canSubmit = currentStep === 7 && formData.userHasPurchasedExact !== undefined
+  // Determine if form can be submitted
+  const canSubmit = (() => {
+    // Must have product data and user persona
+    if (!formData.productData || !formData.userPersona) return false
+
+    // Must have completed step 6 (userPurchasedSimilar)
+    if (!formData.userPurchasedSimilar) return false
+
+    // If user didn't purchase similar, we're done (step 7)
+    if (formData.userPurchasedSimilar === 'no') {
+      return currentStep >= 7
+    }
+
+    // If user purchased similar, must complete step 7 (userReviewedSimilar)
+    if (!formData.userReviewedSimilar) return false
+
+    // If user didn't purchase similar, must complete step 8 (userPurchasedExact)
+    if (!formData.userPurchasedExact) return false
+
+    // If user didn't purchase exact, we're done (step 9)
+    if (formData.userPurchasedExact === 'no') {
+      return currentStep >= 9
+    }
+
+    // If user purchased exact AND main product has no reviews, we're done (step 9)
+    if (formData.hasMainProductReviews === 'no') {
+      return currentStep >= 9
+    }
+
+    // If user purchased exact AND main product has reviews, must complete step 9 (userReviewedExact)
+    return currentStep >= 9 && formData.userReviewedExact !== undefined
+  })()
 
   // Auto-scroll to submit button when it appears
   useEffect(() => {
@@ -1004,32 +1221,32 @@ export default function HomePage() {
                   productData={formData.productData}
                 />
 
-                {/* Field 2: Review Status (reviews pre-fetched, user confirms if they exist) */}
+                {/* Field 2: Main Product Review Status */}
                 {currentStep >= 2 && formData.productData && (
                   <ReviewStatusField
-                    value={formData.hasReviews}
+                    value={formData.hasMainProductReviews}
                     onChange={handleField2Complete}
                     productUrl={formData.productUrl}
                   />
                 )}
 
-                {/* Field 3: Sentiment Spread (only if reviews exist) */}
-                {currentStep >= 3 && formData.hasReviews === 'yes' && (
+                {/* Field 3: Sentiment Spread (only if main product has reviews) */}
+                {currentStep >= 3 && formData.hasMainProductReviews === 'yes' && (
                   <SentimentSpreadField
                     value={formData.sentimentSpread}
                     onChange={handleField3Complete}
                   />
                 )}
 
-                {/* Field 4 */}
-                {currentStep >= 4 && formData.hasReviews === 'no' && (
+                {/* Field 4: Similar Products Reviews (only if main product has no reviews) */}
+                {currentStep >= 4 && formData.hasMainProductReviews === 'no' && (
                   <SimilarProductsField
-                    value={formData.hasSimilarProductsReviewed}
+                    value={formData.hasSimilarProductsReviews}
                     onChange={handleField4Complete}
                   />
                 )}
 
-                {/* Field 5 */}
+                {/* Field 5: User Persona */}
                 {currentStep >= 5 && (
                   <UserPersonaField
                     value={formData.userPersona}
@@ -1037,20 +1254,39 @@ export default function HomePage() {
                   />
                 )}
 
-                {/* Field 6 */}
+                {/* Field 6: User Purchase History (Similar Products) */}
                 {currentStep >= 6 && formData.userPersona && (
                   <UserPurchaseHistoryField
-                    value={formData.userHasPurchasedSimilar}
+                    value={formData.userPurchasedSimilar}
                     onChange={handleField6Complete}
                   />
                 )}
 
-                {/* Field 7 - Only show if user purchased similar products */}
-                {currentStep >= 7 && formData.userHasPurchasedSimilar === 'yes' && (
+                {/* Field 7: User Reviewed Similar (only if user purchased similar) */}
+                {currentStep >= 7 && formData.userPurchasedSimilar === 'yes' && (
+                  <UserReviewedSimilarField
+                    value={formData.userReviewedSimilar}
+                    onChange={handleField7Complete}
+                  />
+                )}
+
+                {/* Field 8: User Purchased Exact (only if user purchased similar) */}
+                {currentStep >= 8 && formData.userPurchasedSimilar === 'yes' && (
                   <UserExactProductField
                     productTitle={formData.productData?.title || 'this product'}
-                    value={formData.userHasPurchasedExact}
-                    onChange={handleField7Complete}
+                    value={formData.userPurchasedExact}
+                    onChange={handleField8Complete}
+                  />
+                )}
+
+                {/* Field 9: User Reviewed Exact (only if user purchased exact AND main product has reviews) */}
+                {currentStep >= 9 &&
+                 formData.userPurchasedExact === 'yes' &&
+                 formData.hasMainProductReviews === 'yes' && (
+                  <UserReviewedExactField
+                    productTitle={formData.productData?.title || 'this product'}
+                    value={formData.userReviewedExact}
+                    onChange={handleField9Complete}
                   />
                 )}
 

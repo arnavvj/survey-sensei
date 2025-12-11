@@ -9,7 +9,7 @@ export function UserPurchaseHistoryField({ value, onChange }: Props) {
   return (
     <div className="card animate-slide-in">
       <label className="block text-lg font-semibold text-gray-800 mb-3">
-        6. User Shopping History
+        6. User Purchase History (Similar Products)
       </label>
       <p className="text-sm text-gray-600 mb-4">
         Has this user purchased similar products before?

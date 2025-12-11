@@ -2,15 +2,23 @@
 FastAPI Backend for Survey Sensei
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional, Union
 from config import settings
 from agents import survey_agent
 from agents.review_gen_agent import review_gen_agent
+from agents.mock_data import MockDataOrchestrator, build_scenario_config
+from integrations import RapidAPIClient
 from database import db
 import uvicorn
+import time
+from utils.logger import setup_logging, get_logger
+
+# Setup enhanced logging
+setup_logging(level="INFO", use_colors=True)
+logger = get_logger(__name__)
 
 app = FastAPI(
     title="Survey Sensei Backend",
@@ -27,7 +35,43 @@ app.add_middleware(
 )
 
 
+# Logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all API requests and responses with timing"""
+    start_time = time.time()
+
+    # Process request
+    response = await call_next(request)
+
+    # Calculate duration
+    duration_ms = (time.time() - start_time) * 1000
+
+    # Only log non-health check endpoints
+    if request.url.path not in ["/", "/health"]:
+        # Log request and response in one line
+        status_emoji = "✅" if response.status_code < 400 else "❌"
+        logger.info(f"{status_emoji} {request.method} {request.url.path} → {response.status_code} ({duration_ms:.0f}ms)")
+
+    return response
+
+
+class GenerateMockDataRequest(BaseModel):
+    """Request for generating mock data (FORM -> SUMMARY transition)"""
+    user_id: str
+    item_id: str
+    form_data: Dict[str, Any]
+
+
+class GenerateMockDataResponse(BaseModel):
+    """Response with mock data metadata (for Summary pane)"""
+    main_product_id: str
+    main_user_id: str
+    metadata: Dict[str, Any]  # Contains counts: products, users, transactions, reviews
+
+
 class StartSurveyRequest(BaseModel):
+    """Request for starting survey (SUMMARY -> SURVEY transition)"""
     user_id: str
     item_id: str
     form_data: Dict[str, Any]
@@ -100,6 +144,16 @@ class HealthResponse(BaseModel):
     environment: str
 
 
+class ProductPreviewRequest(BaseModel):
+    asin: str
+
+
+class ProductPreviewResponse(BaseModel):
+    success: bool
+    product: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
 @app.get("/", response_model=HealthResponse)
 async def root():
     return {
@@ -118,16 +172,187 @@ async def health_check():
     }
 
 
+@app.post("/api/product/preview", response_model=ProductPreviewResponse)
+async def preview_product(request: ProductPreviewRequest):
+    """
+    Preview product details from RapidAPI (for form UI display)
+    This endpoint is called when user pastes Amazon URL to show product info
+
+    Optimized flow:
+    1. User pastes URL → Frontend extracts ASIN
+    2. Frontend calls this endpoint → RapidAPI fetch (cached for 7 days)
+    3. User fills form and submits → Backend reuses cached product data
+
+    Total RapidAPI calls: 1 for product + 1 for reviews = 2 calls per submission
+    """
+    try:
+        logger.info(f"📦 Product preview requested for ASIN: {request.asin}")
+        rapidapi_client = RapidAPIClient()
+
+        product = rapidapi_client.fetch_product_details(request.asin)
+
+        if not product:
+            return ProductPreviewResponse(
+                success=False,
+                error=f"Product not found or RapidAPI error for ASIN: {request.asin}"
+            )
+
+        logger.info(f"✅ Product preview successful: {product['title']}")
+        return ProductPreviewResponse(
+            success=True,
+            product=product
+        )
+
+    except Exception as e:
+        logger.error(f"Error in product preview: {str(e)}")
+        return ProductPreviewResponse(
+            success=False,
+            error=str(e)
+        )
+
+
+@app.post("/api/mock-data/generate", response_model=GenerateMockDataResponse)
+async def generate_mock_data(request: GenerateMockDataRequest):
+    """
+    Generate mock data ONLY (FORM -> SUMMARY transition)
+    Does NOT start the survey - that happens on SUMMARY -> SURVEY transition
+
+    Flow:
+    1. Build scenario configuration from form data
+    2. Fetch product details + reviews from RapidAPI
+    3. Run MOCK_DATA_MINI_AGENT orchestrator to generate simulation data
+    4. Insert all generated data into database
+    5. Return metadata (counts, IDs) for Summary pane
+    """
+    try:
+        logger.separator(f"Mock Data Generation: {request.item_id}")
+
+        # STEP 1: Clean up old data FIRST (before generation)
+        try:
+            deleted_counts = db.cleanup_mock_data()
+            if sum(deleted_counts.values()) > 0:
+                logger.info(f"Cleanup: {sum(deleted_counts.values())} rows deleted")
+        except Exception as e:
+            logger.warning(f"Cleanup warning: {str(e)}")
+
+        # STEP 2: Build scenario configuration
+        scenario_config = build_scenario_config(request.form_data)
+        logger.info(f"Scenario: {scenario_config['scenario_id']} ({scenario_config['group']})")
+
+        # STEP 3: Fetch product details and reviews from RapidAPI
+        rapidapi_client = RapidAPIClient()
+        asin = request.item_id if request.item_id.startswith('B') else request.form_data.get('productASIN', request.item_id)
+
+        main_product = rapidapi_client.fetch_product_details(asin)
+        if not main_product:
+            raise HTTPException(status_code=404, detail=f"Product not found: {asin}")
+
+        # Fetch reviews only for warm products (Group A scenarios)
+        api_reviews = []
+        if scenario_config['group'] == 'warm_warm':
+            api_reviews = rapidapi_client.fetch_product_reviews(asin, max_pages=2)
+            logger.info(f"RapidAPI: {len(api_reviews)} reviews fetched")
+
+        # STEP 4: Run MOCK_DATA orchestrator
+        orchestrator = MockDataOrchestrator(use_cache=True)
+
+        mock_data = await orchestrator.generate_simulation_data(
+            form_data=request.form_data,
+            main_product=main_product,
+            api_reviews=api_reviews,
+            scenario_config=scenario_config
+        )
+        logger.agent_complete(
+            "Orchestrator",
+            "data generation",
+            products=mock_data['metadata']['product_count'],
+            users=mock_data['metadata']['user_count'],
+            transactions=mock_data['metadata']['transaction_count'],
+            reviews=mock_data['metadata']['review_count']
+        )
+
+        # STEP 5: Insert new mock data into database
+
+        # Deduplicate products by item_id (keep first occurrence, which is main product)
+        seen_item_ids = set()
+        unique_products = []
+        for product in mock_data['products']:
+            if product['item_id'] not in seen_item_ids:
+                unique_products.append(product)
+                seen_item_ids.add(product['item_id'])
+            else:
+                logger.warning(f"Skipping duplicate product: {product['item_id']}")
+
+        # Deduplicate users by user_id
+        seen_user_ids = set()
+        unique_users = []
+        for user in mock_data['users']:
+            if user['user_id'] not in seen_user_ids:
+                unique_users.append(user)
+                seen_user_ids.add(user['user_id'])
+
+        # Deduplicate transactions by transaction_id
+        seen_transaction_ids = set()
+        unique_transactions = []
+        for transaction in mock_data['transactions']:
+            if transaction['transaction_id'] not in seen_transaction_ids:
+                unique_transactions.append(transaction)
+                seen_transaction_ids.add(transaction['transaction_id'])
+
+        # Deduplicate reviews by review_id
+        seen_review_ids = set()
+        unique_reviews = []
+        for review in mock_data['reviews']:
+            if review['review_id'] not in seen_review_ids:
+                unique_reviews.append(review)
+                seen_review_ids.add(review['review_id'])
+
+        # Insert into database
+        db.insert_products_batch(unique_products)
+        db.insert_users_batch(unique_users)
+        db.insert_transactions_batch(unique_transactions)
+        db.insert_reviews_batch(unique_reviews)
+
+        logger.info(f"Database: {len(unique_products)}p {len(unique_users)}u {len(unique_transactions)}t {len(unique_reviews)}r inserted")
+        logger.separator()
+
+        # Return metadata for Summary pane (DO NOT start survey yet)
+        return GenerateMockDataResponse(
+            main_product_id=mock_data['metadata']['main_product_id'],
+            main_user_id=mock_data['metadata']['main_user_id'],
+            metadata=mock_data['metadata']
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"Mock data generation failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to generate mock data: {str(e)}")
+
+
 @app.post("/api/survey/start", response_model=StartSurveyResponse)
 async def start_survey(request: StartSurveyRequest):
-    """Start new survey session, return first question"""
+    """
+    Start survey session ONLY (SUMMARY -> SURVEY transition)
+    Assumes mock data was already generated by /api/mock-data/generate
+
+    Flow:
+    1. Use main user and product IDs from request (passed from Summary pane)
+    2. Start survey with generated context from database
+    """
     try:
+        logger.info(f"📝 Starting survey session for user: {request.user_id}, product: {request.item_id}")
+
+        # Start survey with main user and main product (data already in database)
         result = survey_agent.start_survey(
             user_id=request.user_id,
             item_id=request.item_id,
             form_data=request.form_data,
         )
 
+        logger.info("🎉 Survey started successfully")
         return StartSurveyResponse(
             session_id=result["session_id"],
             question=result["question"],
@@ -136,10 +361,12 @@ async def start_survey(request: StartSurveyRequest):
             answered_questions_count=result.get("answered_questions_count", 0),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
-        print(f"ERROR in start_survey: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"ERROR in start_survey: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to start survey: {str(e)}")
 
 

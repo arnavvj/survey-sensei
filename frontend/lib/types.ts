@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // Form state types
-export type FormStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
+export type FormStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 export interface ProductData {
   url: string
@@ -30,18 +30,18 @@ export interface FormData {
   productUrl: string
   productData?: ProductData
 
-  // Field 2
-  hasReviews?: 'yes' | 'no'
+  // Field 2 (RENAMED from hasReviews)
+  hasMainProductReviews?: 'yes' | 'no'
 
-  // Field 3 (if hasReviews = yes)
+  // Field 3 (if hasMainProductReviews = yes)
   sentimentSpread?: {
     good: number
     neutral: number
     bad: number
   }
 
-  // Field 4 (if hasReviews = no)
-  hasSimilarProductsReviewed?: 'yes' | 'no'
+  // Field 4 (if hasMainProductReviews = no) (RENAMED from hasSimilarProductsReviewed)
+  hasSimilarProductsReviews?: 'yes' | 'no'
 
   // Field 5
   userPersona?: {
@@ -55,19 +55,38 @@ export interface FormData {
     gender: 'Male' | 'Female'
   }
 
-  // Field 6
-  userHasPurchasedSimilar?: 'yes' | 'no'
+  // Field 6 (RENAMED from userHasPurchasedSimilar)
+  userPurchasedSimilar?: 'yes' | 'no'
 
-  // Field 7
-  userHasPurchasedExact?: 'yes' | 'no'
+  // Field 7 (NEW - only if userPurchasedSimilar = yes)
+  userReviewedSimilar?: 'yes' | 'no'
+
+  // Field 8 (RENAMED from userHasPurchasedExact - only if userPurchasedSimilar = yes)
+  userPurchasedExact?: 'yes' | 'no'
+
+  // Field 9 (NEW - only if userPurchasedExact = yes AND hasMainProductReviews = yes)
+  userReviewedExact?: 'yes' | 'no'
 }
 
 export interface MockDataSummary {
+  // Overall ecosystem stats
   products: number
   users: number
   transactions: number
   reviews: number
-  scenario: string
+
+  // Main product granular stats
+  mainProductTransactions?: number
+  mainProductReviews?: number
+  mainProductUsers?: number
+
+  // Main user granular stats
+  mainUserTransactions?: number
+  mainUserReviews?: number
+  mainUserProducts?: number
+
+  scenario: string  // Scenario code (e.g., "A1", "B1", "C2")
+  scenarioDescription?: string  // Human-readable description (e.g., "Warm Product / Warm User")
   coldStart: {
     product: boolean
     user: boolean

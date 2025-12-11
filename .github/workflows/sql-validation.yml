@@ -3,15 +3,15 @@ name: SQL Validation
 on:
   pull_request:
     paths:
-      - 'database/migrations/**.sql'
-      - 'database/seed/**.sql'
+      - 'backend/database/migrations/**.sql'
+      - 'backend/database/seed/**.sql'
       - '.github/workflows/sql-validation.yml'
   push:
     branches:
       - main
     paths:
-      - 'database/migrations/**.sql'
-      - 'database/seed/**.sql'
+      - 'backend/database/migrations/**.sql'
+      - 'backend/database/seed/**.sql'
       - '.github/workflows/sql-validation.yml'
 
 jobs:
@@ -24,12 +24,12 @@ jobs:
     - name: Check SQL files exist
       run: |
         echo "Checking for SQL files..."
-        find database -name "*.sql" -type f
+        find backend/database -name "*.sql" -type f
 
     - name: Validate SQL syntax
       run: |
         echo "Validating SQL files for basic syntax..."
-        for file in database/migrations/*.sql database/seed/*.sql; do
+        for file in backend/database/migrations/*.sql backend/database/seed/*.sql; do
           if [ -f "$file" ]; then
             echo "Checking $file..."
             # Basic checks: no trailing spaces, proper line endings
@@ -44,9 +44,9 @@ jobs:
     - name: Check migration naming
       run: |
         echo "Validating migration file naming..."
-        cd database/migrations
+        cd backend/database/migrations
         for file in *.sql; do
-          if [[ ! "$file" =~ ^[0-9]{3}_[a-z_]+\.sql$ ]]; then
+          if [[ ! "$file" =~ ^[0-9]{3}_[a-z_]+\.sql$ && "$file" != "_combined_migrations.sql" ]]; then
             echo "Warning: $file doesn't follow naming convention: NNN_description.sql"
           else
             echo "✓ $file follows naming convention"

@@ -306,6 +306,41 @@ Track OpenAI API usage at [platform.openai.com/usage](https://platform.openai.co
 - Survey generation: ~$0.001 per survey
 - 100 surveys/month: ~$0.10
 
+## Logging
+
+Survey Sensei uses structured logging for improved developer experience:
+
+**Backend Logging** ([utils/logger.py](utils/logger.py)):
+- Colored console output with ANSI codes
+- Emojis for quick visual identification (🔍 debug, ✅ info, ⚠️ warning, ❌ error)
+- Minimal single-line logs for reduced verbosity
+- Category-specific logging (🌐 API, 🤖 Agent, 🗄️ Database, 💾 Cache)
+- Automatic request/response logging middleware
+
+**Log Output Examples:**
+```bash
+✅ Cleanup: 156 rows deleted
+🤖 MOCK_PDT_MINI_AGENT: Generating 5 similar products
+✅ Database: 9p 21u 156t 125r inserted
+✅ POST /api/mock-data → 200 (4532ms)
+```
+
+**Usage:**
+```python
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+# Standard logging
+logger.info("Processing started")
+logger.error("Failed to process", error)
+
+# Semantic logging
+logger.api_request("POST", "/api/endpoint", user_id="123")
+logger.database_operation("INSERT", "products", count=10)
+logger.agent_complete("MOCK_PDT_AGENT", "generation", products=5)
+```
+
 ## Troubleshooting
 
 ### ImportError: No module named 'langchain'
@@ -327,6 +362,13 @@ pip install -r requirements.txt
 - Run the `match_products.sql` function in Supabase SQL Editor
 - Verify pgvector extension is enabled
 - Check that product embeddings exist in database
+
+### Too verbose logging
+- Logging is already minimized with single-line outputs
+- To reduce further, edit `utils/logger.py` and change log level:
+  ```python
+  setup_logging(level="WARNING")  # Only warnings and errors
+  ```
 
 ## Testing
 

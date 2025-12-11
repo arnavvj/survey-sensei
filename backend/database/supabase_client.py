@@ -89,6 +89,81 @@ class SupabaseDB:
         return products_with_reviews
 
     # ============================================================================
+    # CLEANUP OPERATIONS
+    # ============================================================================
+
+    def cleanup_mock_data(self) -> Dict[str, int]:
+        """
+        Delete ALL data from database for clean testing between runs
+
+        This deletes:
+        - All survey sessions
+        - All reviews
+        - All transactions
+        - All users (mock AND main users from previous runs)
+        - All products (mock AND main products from previous runs)
+
+        This ensures a completely fresh start for each test run.
+
+        Returns:
+            Dictionary with counts of deleted records per table
+        """
+        deleted_counts = {}
+
+        try:
+            # STEP 1: Delete all survey sessions
+            survey_sessions_resp = self.client.table("survey_sessions").delete().neq("session_id", "00000000-0000-0000-0000-000000000000").execute()
+            deleted_counts['survey_sessions'] = len(survey_sessions_resp.data) if survey_sessions_resp.data else 0
+
+            # STEP 2: Delete ALL reviews (cascade will handle this, but explicit is better)
+            reviews_resp = self.client.table("reviews").delete().neq("review_id", "00000000-0000-0000-0000-000000000000").execute()
+            deleted_counts['reviews'] = len(reviews_resp.data) if reviews_resp.data else 0
+
+            # STEP 3: Delete ALL transactions
+            txn_resp = self.client.table("transactions").delete().neq("transaction_id", "00000000-0000-0000-0000-000000000000").execute()
+            deleted_counts['transactions'] = len(txn_resp.data) if txn_resp.data else 0
+
+            # STEP 4: Delete ALL users (including previous main users)
+            users_resp = self.client.table("users").delete().neq("user_id", "00000000-0000-0000-0000-000000000000").execute()
+            deleted_counts['users'] = len(users_resp.data) if users_resp.data else 0
+
+            # STEP 5: Delete ALL products (including previous main products)
+            products_resp = self.client.table("products").delete().neq("item_id", "DUMMY_ITEM_ID").execute()
+            deleted_counts['products'] = len(products_resp.data) if products_resp.data else 0
+
+        except Exception as e:
+            print(f"Warning during cleanup: {str(e)}")
+
+        return deleted_counts
+
+    # ============================================================================
+    # PRODUCTS OPERATIONS
+    # ============================================================================
+
+    def insert_products_batch(self, products: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert products into database
+
+        Args:
+            products: List of product dictionaries
+
+        Returns:
+            Number of products inserted
+        """
+        if not products:
+            return 0
+
+        try:
+            response = self.client.table("products").upsert(
+                products,
+                on_conflict="item_id"
+            ).execute()
+            return len(products)
+        except Exception as e:
+            print(f"Failed to insert products: {str(e)}")
+            raise
+
+    # ============================================================================
     # USER OPERATIONS
     # ============================================================================
 
@@ -130,6 +205,29 @@ class SupabaseDB:
         )
         return response.data
 
+    def insert_users_batch(self, users: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert users into database
+
+        Args:
+            users: List of user dictionaries
+
+        Returns:
+            Number of users inserted
+        """
+        if not users:
+            return 0
+
+        try:
+            response = self.client.table("users").upsert(
+                users,
+                on_conflict="email_id"  # Use email_id since it has UNIQUE constraint
+            ).execute()
+            return len(users)
+        except Exception as e:
+            print(f"Failed to insert users: {str(e)}")
+            raise
+
     def find_user_similar_product_purchases(
         self, user_id: str, product_embedding: List[float], limit: int = 5
     ) -> List[Dict[str, Any]]:
@@ -167,6 +265,52 @@ class SupabaseDB:
         similar_transactions.sort(key=lambda x: x["similarity_score"], reverse=True)
         return similar_transactions[:limit]
 
+    def insert_transactions_batch(self, transactions: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert transactions into database
+
+        Args:
+            transactions: List of transaction dictionaries
+
+        Returns:
+            Number of transactions inserted
+        """
+        if not transactions:
+            return 0
+
+        try:
+            response = self.client.table("transactions").upsert(
+                transactions,
+                on_conflict="transaction_id"
+            ).execute()
+            return len(transactions)
+        except Exception as e:
+            print(f"Failed to insert transactions: {str(e)}")
+            raise
+
+    def insert_reviews_batch(self, reviews: List[Dict[str, Any]]) -> int:
+        """
+        Batch insert/upsert reviews into database
+
+        Args:
+            reviews: List of review dictionaries
+
+        Returns:
+            Number of reviews inserted
+        """
+        if not reviews:
+            return 0
+
+        try:
+            response = self.client.table("reviews").upsert(
+                reviews,
+                on_conflict="review_id"
+            ).execute()
+            return len(reviews)
+        except Exception as e:
+            print(f"Failed to insert reviews: {str(e)}")
+            raise
+
     # ============================================================================
     # SURVEY OPERATIONS
     # ============================================================================
@@ -183,8 +327,12 @@ class SupabaseDB:
         from datetime import datetime, timedelta
         import uuid
 
+        # Fetch product price from database for the survey transaction
+        product_response = self.client.table("products").select("price").eq("item_id", item_id).execute()
+        product_price = product_response.data[0]["price"] if product_response.data else 99.99
+
         # Create a placeholder transaction for this survey session
-        # This represents the survey flow, not an actual purchase yet
+        # Use actual product price for the survey transaction
         order_date = datetime.now()
         transaction_data = {
             "transaction_id": str(uuid.uuid4()),
@@ -192,8 +340,8 @@ class SupabaseDB:
             "item_id": item_id,
             "order_date": order_date.isoformat(),
             "expected_delivery_date": (order_date + timedelta(days=5)).isoformat(),
-            "original_price": 0.00,  # Placeholder - survey not tied to actual purchase
-            "retail_price": 0.00,
+            "original_price": float(product_price),  # Use actual product price
+            "retail_price": float(product_price),  # Same as original (no discount for survey)
             "transaction_status": "survey_pending",  # Special status for survey flows
         }
 

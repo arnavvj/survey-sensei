@@ -4,13 +4,11 @@ Simple Database Migration Tool
 Applies SQL migrations using Supabase REST API
 """
 
-import os
 import sys
-import requests
 from pathlib import Path
 
-# Add backend to path
-backend_path = Path(__file__).parent.parent.parent / "backend"
+# Add backend directory to Python path
+backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
 from config import settings
@@ -48,25 +46,38 @@ def main():
     print("="*70 + "\n")
 
     migrations_dir = Path(__file__).parent.parent / "migrations"
+    functions_dir = Path(__file__).parent.parent / "functions"
 
     if not migrations_dir.exists():
         print(f"ERROR: Migrations directory not found: {migrations_dir}")
         return 1
 
-    # Get all SQL files except the combined one (to avoid recursion)
-    sql_files = sorted([
+    # Get all SQL files from migrations directory (except the combined one)
+    migration_files = sorted([
         f for f in migrations_dir.glob("*.sql")
         if f.name != "_combined_migrations.sql"
     ])
 
+    # Get all SQL files from functions directory
+    function_files = sorted(functions_dir.glob("*.sql")) if functions_dir.exists() else []
+
+    # Combine migrations and functions (migrations first, then functions)
+    sql_files = migration_files + function_files
+
     if not sql_files:
-        print("WARNING: No migration files found")
+        print("WARNING: No migration or function files found")
         return 0
 
-    print(f"Found {len(sql_files)} migration file(s):\n")
+    print(f"Found {len(migration_files)} migration file(s) and {len(function_files)} function file(s):\n")
 
-    for i, sql_file in enumerate(sql_files, 1):
-        print(f"{i}. {sql_file.name}")
+    print("Migrations:")
+    for i, sql_file in enumerate(migration_files, 1):
+        print(f"  {i}. {sql_file.name}")
+
+    if function_files:
+        print("\nFunctions:")
+        for i, sql_file in enumerate(function_files, 1):
+            print(f"  {i}. {sql_file.name}")
 
     print("\n" + "="*70)
     print("  Migration Contents")
@@ -101,12 +112,12 @@ def main():
     print("\n3. Run migrations:\n")
     print("   On macOS/Linux:")
     print(f"   export PGPASSWORD='your-db-password'")
-    print(f"   cat database/migrations/*.sql | psql \\")
+    print(f"   cat backend/database/migrations/*.sql | psql \\")
     print(f"       -h db.{project_ref}.supabase.co \\")
     print(f"       -p 5432 -U postgres -d postgres")
     print("\n   On Windows (PowerShell):")
     print(f"   $env:PGPASSWORD='your-db-password'")
-    print(f"   Get-Content database\\migrations\\*.sql | psql `")
+    print(f"   Get-Content backend\\database\\migrations\\*.sql | psql `")
     print(f"       -h db.{project_ref}.supabase.co `")
     print(f"       -p 5432 -U postgres -d postgres")
 
@@ -126,13 +137,45 @@ def main():
 
     print("\n" + "="*70 + "\n")
 
-    # Save combined SQL to a file for easy copying
-    output_file = migrations_dir / "_combined_migrations.sql"
+    # Save combined SQL to database root directory (not migrations subfolder)
+    database_dir = migrations_dir.parent
+    output_file = database_dir / "_combined_migrations.sql"
+
+    # Add DROP statements at the beginning for master reset capability
+    drop_statements = """-- ============================================================================
+-- Survey Sensei - Master Reset Script
+-- ============================================================================
+-- This script drops all existing tables and recreates them from scratch
+-- WARNING: This will DELETE ALL DATA in the database!
+-- ============================================================================
+
+-- Drop tables in reverse dependency order (drop dependent tables first)
+DROP TABLE IF EXISTS reviews CASCADE;
+DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS survey_sessions CASCADE;
+DROP TABLE IF EXISTS survey CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+
+-- Drop functions
+DROP FUNCTION IF EXISTS match_products(vector, int, int) CASCADE;
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+
+-- Note: Extensions are kept enabled (uuid-ossp, vector)
+-- ============================================================================
+
+"""
+
+    # Combine: DROP statements + all migrations
+    final_sql = drop_statements + combined_sql
+
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(combined_sql)
+        f.write(final_sql)
 
     print(f"Combined SQL saved to: {output_file}")
-    print(f"You can copy this entire file into Supabase SQL Editor\n")
+    print(f"You can copy this entire file into Supabase SQL Editor")
+    print(f"\nWARNING: This file includes DROP TABLE statements for master reset")
+    print(f"         Running it will DELETE ALL DATA and recreate tables from scratch\n")
 
     return 0
 

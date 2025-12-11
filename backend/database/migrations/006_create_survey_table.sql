@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS survey (
     scenario_id UUID DEFAULT uuid_generate_v4(),
-    item_id UUID NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
+    item_id VARCHAR(20) NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     transaction_id UUID NOT NULL REFERENCES transactions(transaction_id) ON DELETE CASCADE,
     survey_id UUID REFERENCES reviews(review_id) ON DELETE CASCADE,

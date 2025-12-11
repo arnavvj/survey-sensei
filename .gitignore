@@ -192,3 +192,9 @@ Thumbs.db
 .supabase/
 supabase/.branches
 supabase/.temp
+
+# MOCK_DATA and RapidAPI Cache directories
+.mock_data_cache/
+.rapidapi_cache/
+backend/.mock_data_cache/
+backend/.rapidapi_cache/

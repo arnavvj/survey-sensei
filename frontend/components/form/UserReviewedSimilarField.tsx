@@ -1,25 +1,19 @@
 'use client'
 
 interface Props {
-  productTitle: string
   value?: 'yes' | 'no'
   onChange: (value: 'yes' | 'no') => void
 }
 
-export function UserExactProductField({ productTitle, value, onChange }: Props) {
+export function UserReviewedSimilarField({ value, onChange }: Props) {
   return (
     <div className="card animate-slide-in">
       <label className="block text-lg font-semibold text-gray-800 mb-3">
-        8. User Purchase History (Exact Product)
+        7. User Review History (Similar Products)
       </label>
       <p className="text-sm text-gray-600 mb-4">
-        Has this user bought or returned this exact product before?
+        Has this user left reviews for similar products they purchased?
       </p>
-      <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-        <p className="text-sm font-medium text-purple-900">
-          Product: <span className="font-semibold">{productTitle}</span>
-        </p>
-      </div>
 
       <div className="flex gap-3">
         <button
@@ -48,13 +42,11 @@ export function UserExactProductField({ productTitle, value, onChange }: Props) 
         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
           {value === 'yes' ? (
             <p>
-              The user has prior experience with this exact product. This will enable
-              deeper, more specific survey questions.
+              Excellent! The user's past reviews will help us understand their preferences and concerns for personalized survey questions.
             </p>
           ) : (
             <p>
-              This is the user's first time purchasing this specific product. The survey
-              will focus on expectations and initial impressions.
+              User purchased products but hasn't reviewed them yet. We'll focus on purchase history instead.
             </p>
           )}
         </div>
