@@ -443,8 +443,9 @@ PRODUCT_CATEGORIES = {
 
 ## Notes
 
-- All generated data is marked with `is_mock = True` for tracking
-- Main user is marked with `is_main_user = True`
-- Review sources tracked: `rapidapi`, `agent_generated`, `user_submitted`
+- **Users**: Main user is marked with `is_main_user = True`, generated users are `False`
+- **Products**: Generated products are marked with `is_mock = True`, RapidAPI products are `False`
+- **Transactions**: Main user's transactions are `is_mock = False`, mock users' transactions are `True`
+- **Reviews**: Review sources tracked via `source` field: `rapidapi`, `agent_generated`, `user_submitted`
 - Transactions use realistic date ranges (1 month to 2 years)
 - ASINs generated with format: B + 9 alphanumeric characters

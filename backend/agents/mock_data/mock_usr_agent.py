@@ -46,8 +46,7 @@ class MockUserAgent(BaseMockAgent):
             'base_location': form_data['userLocation'],
             'base_zip': form_data['userZip'],
             'gender': form_data['userGender'],
-            'is_mock': False,  # Real user from form
-            'is_main_user': True,  # Flag for form submission user
+            'is_main_user': True,  # Flag for form submission user (survey target)
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat(),
         }
@@ -156,8 +155,7 @@ Be creative with names (traditional, modern, multicultural mix). Vary email styl
         import uuid
         for user in users:
             user['user_id'] = str(uuid.uuid4())
-            user['is_mock'] = True
-            user['is_main_user'] = False
+            user['is_main_user'] = False  # Generated mock user (not the survey target)
             user['created_at'] = datetime.now().isoformat()
             user['updated_at'] = datetime.now().isoformat()
 

@@ -288,5 +288,5 @@ class MockTransactionAgent:
             user=user,
             product=product,
             days_ago=days_ago,
-            is_mock=user.get('is_mock', True)
+            is_mock=not user.get('is_main_user', False)  # is_mock = NOT is_main_user
         )
