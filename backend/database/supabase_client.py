@@ -96,12 +96,14 @@ class SupabaseDB:
         """
         Delete ALL data from database for clean testing between runs
 
-        This includes:
-        - Mock data (is_mock=True)
-        - Survey sessions and their associated data
-        - Any leftover transactions/reviews
+        This deletes:
+        - All survey sessions
+        - All reviews
+        - All transactions
+        - All users (mock AND main users from previous runs)
+        - All products (mock AND main products from previous runs)
 
-        Keeps only the main product and main user (is_main_user=True)
+        This ensures a completely fresh start for each test run.
 
         Returns:
             Dictionary with counts of deleted records per table
@@ -109,26 +111,24 @@ class SupabaseDB:
         deleted_counts = {}
 
         try:
-            # STEP 1: Delete all survey sessions (this will help clean up survey-related transactions)
+            # STEP 1: Delete all survey sessions
             survey_sessions_resp = self.client.table("survey_sessions").delete().neq("session_id", "00000000-0000-0000-0000-000000000000").execute()
             deleted_counts['survey_sessions'] = len(survey_sessions_resp.data) if survey_sessions_resp.data else 0
 
-            # STEP 2: Delete all reviews (mock + survey-related)
-            # Keep only reviews for the main user if needed, but for testing, delete all
+            # STEP 2: Delete ALL reviews (cascade will handle this, but explicit is better)
             reviews_resp = self.client.table("reviews").delete().neq("review_id", "00000000-0000-0000-0000-000000000000").execute()
             deleted_counts['reviews'] = len(reviews_resp.data) if reviews_resp.data else 0
 
-            # STEP 3: Delete all transactions except those for the main user (if we want to preserve any)
-            # For clean testing, delete ALL transactions
+            # STEP 3: Delete ALL transactions
             txn_resp = self.client.table("transactions").delete().neq("transaction_id", "00000000-0000-0000-0000-000000000000").execute()
             deleted_counts['transactions'] = len(txn_resp.data) if txn_resp.data else 0
 
-            # STEP 4: Delete mock users (keep main user with is_main_user=True)
-            users_resp = self.client.table("users").delete().eq("is_mock", True).execute()
+            # STEP 4: Delete ALL users (including previous main users)
+            users_resp = self.client.table("users").delete().neq("user_id", "00000000-0000-0000-0000-000000000000").execute()
             deleted_counts['users'] = len(users_resp.data) if users_resp.data else 0
 
-            # STEP 5: Delete mock products (keep main product with is_mock=False)
-            products_resp = self.client.table("products").delete().eq("is_mock", True).execute()
+            # STEP 5: Delete ALL products (including previous main products)
+            products_resp = self.client.table("products").delete().neq("item_id", "DUMMY_ITEM_ID").execute()
             deleted_counts['products'] = len(products_resp.data) if products_resp.data else 0
 
         except Exception as e:

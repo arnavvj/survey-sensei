@@ -227,11 +227,19 @@ async def generate_mock_data(request: GenerateMockDataRequest):
     try:
         logger.separator(f"Mock Data Generation: {request.item_id}")
 
-        # STEP 1: Build scenario configuration
+        # STEP 1: Clean up old data FIRST (before generation)
+        try:
+            deleted_counts = db.cleanup_mock_data()
+            if sum(deleted_counts.values()) > 0:
+                logger.info(f"Cleanup: {sum(deleted_counts.values())} rows deleted")
+        except Exception as e:
+            logger.warning(f"Cleanup warning: {str(e)}")
+
+        # STEP 2: Build scenario configuration
         scenario_config = build_scenario_config(request.form_data)
         logger.info(f"Scenario: {scenario_config['scenario_id']} ({scenario_config['group']})")
 
-        # STEP 2: Fetch product details and reviews from RapidAPI
+        # STEP 3: Fetch product details and reviews from RapidAPI
         rapidapi_client = RapidAPIClient()
         asin = request.item_id if request.item_id.startswith('B') else request.form_data.get('productASIN', request.item_id)
 
@@ -245,7 +253,7 @@ async def generate_mock_data(request: GenerateMockDataRequest):
             api_reviews = rapidapi_client.fetch_product_reviews(asin, max_pages=2)
             logger.info(f"RapidAPI: {len(api_reviews)} reviews fetched")
 
-        # STEP 3: Run MOCK_DATA orchestrator
+        # STEP 4: Run MOCK_DATA orchestrator
         orchestrator = MockDataOrchestrator(use_cache=True)
 
         mock_data = await orchestrator.generate_simulation_data(
@@ -262,14 +270,6 @@ async def generate_mock_data(request: GenerateMockDataRequest):
             transactions=mock_data['metadata']['transaction_count'],
             reviews=mock_data['metadata']['review_count']
         )
-
-        # STEP 4: Clean up old mock data (for clean testing)
-        try:
-            deleted_counts = db.cleanup_mock_data()
-            if sum(deleted_counts.values()) > 0:
-                logger.info(f"Cleanup: {sum(deleted_counts.values())} rows deleted")
-        except Exception as e:
-            logger.warning(f"Cleanup warning: {str(e)}")
 
         # STEP 5: Insert new mock data into database
 

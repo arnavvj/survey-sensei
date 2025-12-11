@@ -332,21 +332,32 @@ The generated mock data provides the foundation for the Survey Sensei agentic fr
 ## Enhanced Features (Implemented)
 
 ### ✅ Vector Embeddings Generation
-- Uses `text-embedding-3-small` for cost-effective embeddings
-- Generates embeddings for products and reviews
+- Uses `text-embedding-3-small` for cost-effective embeddings (1536 dimensions)
+- **ENABLED BY DEFAULT** in all 12 scenarios (`generate_embeddings: True`)
+- Generates embeddings for products, users, and reviews
 - Supports batch embedding generation
 - Includes retry logic for API failures
 
+**Embedding Text Composition:**
+- **Products**: item_id, title, brand, description, star_rating, num_ratings, category, price
+- **Reviews**: item_id, user_id, transaction_id, timestamp, review_title, review_text, review_stars
+- **Users**: user_name, age, base_location, base_zip, gender
+
 **Usage:**
 ```python
-# Enable embeddings in scenario config
+# Embeddings are generated automatically during data generation
 result = await orchestrator.generate_simulation_data(
     ...,
     scenario_config={
-        'generate_embeddings': True,  # Generate embeddings for products
+        'generate_embeddings': True,  # ✅ Default in all scenarios
         ...
     }
 )
+
+# All generated products, users, and reviews will have embeddings populated
+products = result['products']  # Each has embeddings field
+users = result['users']        # Each has embeddings field
+reviews = result['reviews']    # Each has embeddings field
 ```
 
 ### ✅ Retry Logic with Exponential Backoff
