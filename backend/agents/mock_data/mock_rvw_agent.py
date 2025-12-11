@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Tuple
 import random
 import uuid
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .base import BaseMockAgent
 from .mock_trx_agent import MockTransactionAgent
 
@@ -172,8 +173,8 @@ class MockReviewAgent(BaseMockAgent):
         reviews = []
         transactions = []
 
-        # Generate in batches of 10 to avoid token limits
-        batch_size = 10
+        # Generate in batches of 20 to reduce API calls (optimized from 10)
+        batch_size = 20
         remaining = count
 
         while remaining > 0:
@@ -261,7 +262,7 @@ Return JSON array:
         generate_embeddings: bool = False
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
-        Generate reviews for similar products (random distribution)
+        Generate reviews for similar products (PARALLELIZED for performance)
 
         Args:
             similar_products: List of similar products
@@ -275,17 +276,50 @@ Return JSON array:
         all_reviews = []
         all_transactions = []
 
-        for product in similar_products:
-            # Random distribution for similar products
-            reviews, transactions = self._generate_reviews_with_sentiment(
-                product=product,
-                users=mock_users,
-                count=reviews_per_product,
-                sentiment=random.choice(['good', 'good', 'good', 'neutral', 'bad']),  # Mostly positive
-                generate_embeddings=generate_embeddings
-            )
-            all_reviews.extend(reviews)
-            all_transactions.extend(transactions)
+        # If only 1-2 products, run sequentially (threading overhead not worth it)
+        if len(similar_products) <= 2:
+            for product in similar_products:
+                reviews, transactions = self._generate_reviews_with_sentiment(
+                    product=product,
+                    users=mock_users,
+                    count=reviews_per_product,
+                    sentiment=random.choice(['good', 'good', 'good', 'neutral', 'bad']),
+                    generate_embeddings=generate_embeddings
+                )
+                all_reviews.extend(reviews)
+                all_transactions.extend(transactions)
+        else:
+            # Parallelize review generation for multiple products (OPTIMIZED)
+            # Each product's reviews are independent - safe to parallelize
+            def generate_for_product(product):
+                """Thread-safe function to generate reviews for a single product"""
+                return self._generate_reviews_with_sentiment(
+                    product=product,
+                    users=mock_users,
+                    count=reviews_per_product,
+                    sentiment=random.choice(['good', 'good', 'good', 'neutral', 'bad']),
+                    generate_embeddings=generate_embeddings
+                )
+
+            # Use ThreadPoolExecutor to parallelize (max 4 workers to avoid overwhelming OpenAI API)
+            with ThreadPoolExecutor(max_workers=min(4, len(similar_products))) as executor:
+                # Submit all tasks
+                future_to_product = {
+                    executor.submit(generate_for_product, product): product
+                    for product in similar_products
+                }
+
+                # Collect results as they complete
+                for future in as_completed(future_to_product):
+                    product = future_to_product[future]
+                    try:
+                        reviews, transactions = future.result()
+                        all_reviews.extend(reviews)
+                        all_transactions.extend(transactions)
+                    except Exception as e:
+                        import logging
+                        logging.error(f"Failed to generate reviews for product {product.get('item_id', 'unknown')}: {e}")
+                        # Continue with other products even if one fails
 
         return all_reviews, all_transactions
 
