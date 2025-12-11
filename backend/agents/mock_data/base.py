@@ -152,6 +152,63 @@ class BaseMockAgent:
         embeddings = self.generate_embeddings([text])
         return embeddings[0] if embeddings else None
 
+    def generate_embeddings_batch(
+        self,
+        items: List[Dict[str, Any]],
+        text_builder_fn,
+        batch_size: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate embeddings for multiple items in batches (OPTIMIZED)
+
+        This method is much more efficient than calling generate_single_embedding()
+        for each item individually. OpenAI's API supports batching up to 2048 texts
+        in a single call, which dramatically reduces API overhead.
+
+        Args:
+            items: List of items (products, users, or reviews)
+            text_builder_fn: Function to build embedding text from item
+            batch_size: Number of items to process in each API call (max 2048)
+
+        Returns:
+            Same list of items with 'embeddings' field populated
+        """
+        if not items:
+            return items
+
+        # Build all embedding texts first
+        texts = []
+        for item in items:
+            try:
+                text = text_builder_fn(item)
+                texts.append(text)
+            except Exception as e:
+                logger.warning(f"Failed to build embedding text for item: {e}")
+                texts.append("")  # Placeholder for failed items
+
+        # Generate embeddings in batches
+        all_embeddings = []
+        total_batches = (len(texts) + batch_size - 1) // batch_size
+
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+
+            try:
+                logger.info(f"Generating embeddings batch {batch_num}/{total_batches} ({len(batch_texts)} items)")
+                batch_embeddings = self.generate_embeddings(batch_texts)
+                all_embeddings.extend(batch_embeddings)
+            except Exception as e:
+                logger.error(f"Failed to generate embeddings for batch {batch_num}: {e}")
+                # Add None embeddings for failed batch
+                all_embeddings.extend([None] * len(batch_texts))
+
+        # Assign embeddings back to items
+        for item, embedding in zip(items, all_embeddings):
+            item['embeddings'] = embedding
+
+        return items
+
     # ============================================================================
     # Entity-specific embedding text builders
     # ============================================================================

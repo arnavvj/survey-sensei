@@ -58,39 +58,35 @@ class MockDataOrchestrator:
         # ============================================================
         logger.info("📦 STEP 1: Initializing products and users")
 
-        # 1.a: Initialize product_df with main product
-        # Generate embeddings for main product (from RapidAPI)
+        # 1.a: Initialize product_df with main product (defer embeddings to batch generation)
         enable_embeddings = scenario_config.get('generate_embeddings', True)  # Default: True
-        if enable_embeddings:
-            embedding_text = self.pdt_agent.build_product_embedding_text(main_product)
-            main_product['embeddings'] = self.pdt_agent.generate_single_embedding(embedding_text)
-            logger.info(f"✅ Generated embeddings for main product: {main_product['title'][:50]}")
+        main_product['embeddings'] = None  # Will be generated in batch later
 
         all_products = [main_product]
 
-        # 1.b: Generate and append mock similar products
+        # 1.b: Generate and append mock similar products (defer embeddings)
         similar_products = self.pdt_agent.generate_similar_products(
             main_product=main_product,
             count=scenario_config.get('similar_product_count', 5),
             use_cache=self.use_cache,
-            generate_embeddings=enable_embeddings
+            generate_embeddings=False  # Defer to batch generation
         )
         all_products.extend(similar_products)
 
-        # 1.c: Generate diverse/different products for organic ecosystem
+        # 1.c: Generate diverse/different products for organic ecosystem (defer embeddings)
         diverse_product_count = scenario_config.get('diverse_product_count', 3)
         diverse_products = self.pdt_agent.generate_diverse_products(
             count=diverse_product_count,
             use_cache=self.use_cache,
-            generate_embeddings=enable_embeddings
+            generate_embeddings=False  # Defer to batch generation
         )
         all_products.extend(diverse_products)
         logger.info(f"✅ Products: 1 main + {len(similar_products)} similar + {len(diverse_products)} diverse = {len(all_products)} total")
 
-        # 1.c: Initialize user_df with main user
+        # 1.c: Initialize user_df with main user (defer embeddings)
         main_user = self.usr_agent.generate_main_user(
             form_data,
-            generate_embeddings=enable_embeddings
+            generate_embeddings=False  # Defer to batch generation
         )
         all_users = [main_user]
 
@@ -106,11 +102,11 @@ class MockDataOrchestrator:
         # Users = (total reviews * 1.5) to ensure realistic sparsity
         calculated_user_count = max(int(total_expected_reviews * 1.5), scenario_config.get('mock_user_count', 15))
 
-        # Generate and append mock users
+        # Generate and append mock users (defer embeddings)
         mock_users = self.usr_agent.generate_mock_users(
             main_user=main_user,
             count=calculated_user_count,
-            generate_embeddings=enable_embeddings
+            generate_embeddings=False  # Defer to batch generation
         )
         all_users.extend(mock_users)
         logger.info(f"✅ Users: 1 main + {len(mock_users)} mock = {len(all_users)} total (calculated for realistic sparsity)")
@@ -139,17 +135,17 @@ class MockDataOrchestrator:
                 )
                 transactions.extend(api_transactions)
 
-                # Then convert API reviews to our format
+                # Then convert API reviews to our format (defer embeddings)
                 api_review_objects = self.rvw_agent.convert_api_reviews_to_db_format(
                     api_reviews=api_reviews,
                     transactions=api_transactions,
                     main_product=main_product,
-                    generate_embeddings=enable_embeddings
+                    generate_embeddings=False  # Defer to batch generation
                 )
                 reviews.extend(api_review_objects)
                 logger.info(f"✅ Added {len(api_review_objects)} original scraped reviews")
 
-            # 2.2: Generate additional mock reviews to meet sentimentSpread requirement
+            # 2.2: Generate additional mock reviews to meet sentimentSpread requirement (defer embeddings)
             sentiment_spread = form_data.get('sentimentSpread', {'good': 70, 'neutral': 20, 'bad': 10})
             additional_reviews, additional_transactions = self.rvw_agent.generate_reviews_for_sentiment_spread(
                 main_product=main_product,
@@ -157,7 +153,7 @@ class MockDataOrchestrator:
                 existing_reviews=reviews,
                 sentiment_spread=sentiment_spread,
                 target_total=scenario_config.get('main_product_reviews', 100),
-                generate_embeddings=enable_embeddings
+                generate_embeddings=False  # Defer to batch generation
             )
             reviews.extend(additional_reviews)
             transactions.extend(additional_transactions)
@@ -201,10 +197,10 @@ class MockDataOrchestrator:
         if has_similar_products_reviews:
             logger.info("⭐ STEP 3: Similar products have reviews - generating...")
 
-            # Generate reviews for mock products (random distribution)
+            # Generate reviews for mock products (random distribution, defer embeddings)
             similar_reviews, similar_transactions = self.rvw_agent.generate_reviews_for_similar_products(
                 similar_products=similar_products,
-                generate_embeddings=enable_embeddings,
+                generate_embeddings=False,  # Defer to batch generation
                 mock_users=mock_users,
                 reviews_per_product=scenario_config.get('similar_product_reviews', 20)
             )
@@ -254,12 +250,12 @@ class MockDataOrchestrator:
             if user_reviewed_similar:
                 logger.info("✍️  Sub-branch A: Main user reviewed similar products")
 
-                # Generate main user's reviews for similar products
+                # Generate main user's reviews for similar products (defer embeddings)
                 main_user_similar_reviews, main_user_similar_txns = self.rvw_agent.generate_main_user_similar_reviews(
                     main_user=main_user,
                     similar_products=similar_products,
                     count=random.randint(2, 4),  # 2-4 reviews
-                    generate_embeddings=enable_embeddings
+                    generate_embeddings=False  # Defer to batch generation
                 )
                 reviews.extend(main_user_similar_reviews)
                 transactions.extend(main_user_similar_txns)
@@ -307,12 +303,12 @@ class MockDataOrchestrator:
                 if user_reviewed_exact:
                     logger.info("⭐ Main user reviewed exact product")
 
-                    # Generate main user's review for main product
+                    # Generate main user's review for main product (defer embeddings)
                     exact_review = self.rvw_agent.generate_main_user_exact_review(
                         main_user=main_user,
                         main_product=main_product,
                         transaction=exact_txn,
-                        generate_embeddings=enable_embeddings
+                        generate_embeddings=False  # Defer to batch generation
                     )
                     reviews.append(exact_review)
                     logger.info(f"✅ Added main user review for exact product")
@@ -393,6 +389,43 @@ class MockDataOrchestrator:
         logger.info(f"   Main Product: {len(main_product_transactions)} txns, {len(main_product_reviews)} reviews, {main_product_users} unique buyers")
         logger.info(f"   Main Product Sparsity: {avg_purchases_per_user_main:.2f} purchases/user, {review_rate_main:.1f}% review rate")
         logger.info(f"   Main User: {len(main_user_transactions)} txns, {len(main_user_reviews)} reviews, {main_user_products} different products")
+
+        # ============================================================
+        # STEP 6: BATCH GENERATE EMBEDDINGS (OPTIMIZED)
+        # ============================================================
+        if enable_embeddings:
+            logger.info("🔮 STEP 6: Generating embeddings in batches (optimized)...")
+
+            # Batch generate product embeddings
+            if all_products:
+                logger.info(f"   → Generating embeddings for {len(all_products)} products...")
+                self.pdt_agent.generate_embeddings_batch(
+                    items=all_products,
+                    text_builder_fn=self.pdt_agent.build_product_embedding_text,
+                    batch_size=100
+                )
+
+            # Batch generate user embeddings
+            if all_users:
+                logger.info(f"   → Generating embeddings for {len(all_users)} users...")
+                self.usr_agent.generate_embeddings_batch(
+                    items=all_users,
+                    text_builder_fn=self.usr_agent.build_user_embedding_text,
+                    batch_size=100
+                )
+
+            # Batch generate review embeddings
+            if reviews:
+                logger.info(f"   → Generating embeddings for {len(reviews)} reviews...")
+                self.rvw_agent.generate_embeddings_batch(
+                    items=reviews,
+                    text_builder_fn=self.rvw_agent.build_review_embedding_text,
+                    batch_size=100
+                )
+
+            logger.info(f"✅ Batch embedding generation complete!")
+        else:
+            logger.info("⏭️  Skipping embeddings generation (disabled in config)")
 
         result = {
             'products': all_products,

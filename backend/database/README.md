@@ -193,12 +193,16 @@ User Input (Form) → Orchestrator → Agents → Database
                     STEP 1: Cleanup (delete all existing data)
                     STEP 2: Build scenario configuration
                     STEP 3: Fetch from RapidAPI
-                    STEP 4: Generate mock data
-                         ├─> MOCK_PDT_MINI_AGENT (similar products + embeddings)
-                         ├─> MOCK_USR_MINI_AGENT (user personas + embeddings)
+                    STEP 4: Generate mock data (WITHOUT embeddings)
+                         ├─> MOCK_PDT_MINI_AGENT (similar products)
+                         ├─> MOCK_USR_MINI_AGENT (user personas)
                          ├─> MOCK_TRX_MINI_AGENT (transactions)
-                         └─> MOCK_RVW_MINI_AGENT (reviews + embeddings)
-                    STEP 5: Insert into database
+                         └─> MOCK_RVW_MINI_AGENT (reviews)
+                    STEP 5: Batch generate embeddings (OPTIMIZED)
+                         ├─> Products: 100 per batch
+                         ├─> Users: 100 per batch
+                         └─> Reviews: 100 per batch
+                    STEP 6: Insert into database (with embeddings)
 ```
 
 **Important**: Database cleanup happens BEFORE data generation (STEP 1) to ensure a fresh environment for each test run.

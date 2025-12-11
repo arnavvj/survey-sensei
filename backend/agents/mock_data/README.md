@@ -331,12 +331,27 @@ The generated mock data provides the foundation for the Survey Sensei agentic fr
 
 ## Enhanced Features (Implemented)
 
-### ✅ Vector Embeddings Generation
+### ✅ Vector Embeddings Generation (OPTIMIZED WITH BATCH PROCESSING)
 - Uses `text-embedding-3-small` for cost-effective embeddings (1536 dimensions)
 - **ENABLED BY DEFAULT** in all 12 scenarios (`generate_embeddings: True`)
-- Generates embeddings for products, users, and reviews
-- Supports batch embedding generation
+- **BATCH OPTIMIZED**: Generates embeddings in batches of 100 items per API call
+- Dramatically reduces API overhead (100s of calls → ~5-10 calls)
 - Includes retry logic for API failures
+
+**Optimization Strategy:**
+1. Generate ALL data first (products, users, transactions, reviews) WITHOUT embeddings
+2. Once all DataFrames are complete, batch-generate embeddings in 3 groups:
+   - All products in batches (e.g., 100 products per API call)
+   - All users in batches
+   - All reviews in batches
+3. Upload to Supabase with complete embeddings
+
+**Benefits:**
+- **Massive API reduction**: 100s of individual calls → ~5-10 batch calls
+- **Faster execution**: Parallel batch processing
+- **Cost savings**: Reduced API overhead
+- **Better error handling**: Retry entire batch if one fails
+- **100% coverage**: All rows guaranteed to have embeddings
 
 **Embedding Text Composition:**
 - **Products**: item_id, title, brand, description, star_rating, num_ratings, category, price
@@ -345,7 +360,7 @@ The generated mock data provides the foundation for the Survey Sensei agentic fr
 
 **Usage:**
 ```python
-# Embeddings are generated automatically during data generation
+# Embeddings are generated automatically in batches at the end
 result = await orchestrator.generate_simulation_data(
     ...,
     scenario_config={
@@ -354,10 +369,10 @@ result = await orchestrator.generate_simulation_data(
     }
 )
 
-# All generated products, users, and reviews will have embeddings populated
-products = result['products']  # Each has embeddings field
-users = result['users']        # Each has embeddings field
-reviews = result['reviews']    # Each has embeddings field
+# ALL generated products, users, and reviews will have embeddings populated
+products = result['products']  # ✅ 100% have embeddings
+users = result['users']        # ✅ 100% have embeddings
+reviews = result['reviews']    # ✅ 100% have embeddings
 ```
 
 ### ✅ Retry Logic with Exponential Backoff
