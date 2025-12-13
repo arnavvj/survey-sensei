@@ -393,8 +393,17 @@ class MockDataOrchestrator:
         # ============================================================
         # STEP 6: BATCH GENERATE EMBEDDINGS (OPTIMIZED)
         # ============================================================
+        # STEP 6: CALCULATE USER ENGAGEMENT METRICS
+        # ============================================================
+        logger.info("📊 STEP 6: Calculating user engagement metrics...")
+        self._calculate_user_engagement_metrics(all_users, transactions, reviews)
+        logger.info(f"✅ User engagement metrics calculated for {len(all_users)} users")
+
+        # ============================================================
+        # STEP 7: BATCH EMBEDDING GENERATION
+        # ============================================================
         if enable_embeddings:
-            logger.info("🔮 STEP 6: Generating embeddings in batches (optimized)...")
+            logger.info("🔮 STEP 7: Generating embeddings in batches (optimized)...")
 
             # Batch generate product embeddings
             if all_products:
@@ -457,6 +466,126 @@ class MockDataOrchestrator:
 
         logger.info("🎉 MOCK_DATA_MINI_AGENT pipeline completed successfully")
         return result
+
+    def _calculate_user_engagement_metrics(
+        self,
+        users: List[Dict[str, Any]],
+        transactions: List[Dict[str, Any]],
+        reviews: List[Dict[str, Any]]
+    ) -> None:
+        """
+        Calculate and populate user engagement metrics for all users
+
+        Metrics calculated:
+        - total_purchases: Count of transactions
+        - total_reviews: Count of reviews
+        - review_engagement_rate: Percentage of purchases reviewed (0.000-1.000)
+        - avg_review_rating: Average star rating (0.00-5.00)
+        - sentiment_tendency: positive, critical, balanced, polarized, neutral
+        - engagement_level: highly_engaged, moderately_engaged, passive_buyer, new_user
+
+        Args:
+            users: List of user dictionaries (modified in-place)
+            transactions: List of transaction dictionaries
+            reviews: List of review dictionaries
+        """
+        for user in users:
+            user_id = user['user_id']
+
+            # Get user's transactions
+            user_transactions = [t for t in transactions if t['user_id'] == user_id]
+            total_purchases = len(user_transactions)
+
+            # Get user's reviews (via transaction_id)
+            user_transaction_ids = {t['transaction_id'] for t in user_transactions}
+            user_reviews = [r for r in reviews if r['transaction_id'] in user_transaction_ids]
+            total_reviews = len(user_reviews)
+
+            # Calculate review_engagement_rate
+            review_engagement_rate = (total_reviews / total_purchases) if total_purchases > 0 else 0.000
+
+            # Calculate avg_review_rating
+            if total_reviews > 0:
+                avg_review_rating = sum(r['review_stars'] for r in user_reviews) / total_reviews
+            else:
+                avg_review_rating = 0.00
+
+            # Calculate sentiment_tendency
+            sentiment_tendency = self._determine_sentiment_tendency(
+                user_reviews,
+                avg_review_rating,
+                total_reviews
+            )
+
+            # Calculate engagement_level
+            engagement_level = self._determine_engagement_level(
+                total_purchases,
+                total_reviews,
+                review_engagement_rate
+            )
+
+            # Update user dict
+            user['total_purchases'] = total_purchases
+            user['total_reviews'] = total_reviews
+            user['review_engagement_rate'] = round(review_engagement_rate, 3)
+            user['avg_review_rating'] = round(avg_review_rating, 2)
+            user['sentiment_tendency'] = sentiment_tendency
+            user['engagement_level'] = engagement_level
+
+    def _determine_sentiment_tendency(
+        self,
+        user_reviews: List[Dict[str, Any]],
+        avg_rating: float,
+        total_reviews: int
+    ) -> str:
+        """
+        Determine user's sentiment tendency based on review patterns
+
+        Returns: 'positive', 'critical', 'balanced', 'polarized', or 'neutral'
+        """
+        if total_reviews == 0:
+            return 'neutral'
+
+        # Calculate standard deviation of ratings
+        if total_reviews >= 2:
+            ratings = [r['review_stars'] for r in user_reviews]
+            mean = sum(ratings) / len(ratings)
+            variance = sum((r - mean) ** 2 for r in ratings) / len(ratings)
+            stddev = variance ** 0.5
+        else:
+            stddev = 0.0
+
+        # Decision logic
+        if avg_rating >= 4.5:
+            return 'positive'
+        elif avg_rating <= 2.5:
+            return 'critical'
+        elif stddev > 1.5:
+            return 'polarized'  # Reviews range from very low to very high
+        elif total_reviews >= 3:
+            return 'balanced'  # Multiple reviews with moderate ratings
+        else:
+            return 'neutral'
+
+    def _determine_engagement_level(
+        self,
+        total_purchases: int,
+        total_reviews: int,
+        engagement_rate: float
+    ) -> str:
+        """
+        Determine user's engagement level
+
+        Returns: 'highly_engaged', 'moderately_engaged', 'passive_buyer', or 'new_user'
+        """
+        if total_reviews >= 5 and engagement_rate >= 0.7:
+            return 'highly_engaged'
+        elif total_reviews >= 2 and engagement_rate >= 0.4:
+            return 'moderately_engaged'
+        elif total_purchases > 0:
+            return 'passive_buyer'
+        else:
+            return 'new_user'
 
     def estimate_cost(self, scenario_config: Dict[str, Any]) -> Dict[str, Any]:
         """
