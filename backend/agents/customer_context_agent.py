@@ -105,11 +105,14 @@ class CustomerContextAgent:
         review_texts = []
         for review in user_reviews[:15]:
             product_title = review.get("products", {}).get("title", "Unknown Product")
+            # Infer sentiment from star rating
+            stars = review['review_stars']
+            sentiment = "positive" if stars >= 4 else ("neutral" if stars == 3 else "negative")
             review_texts.append(
                 f"Product: {product_title}\n"
                 f"Rating: {review['review_stars']}/5\n"
                 f"Review: {review['review_text']}\n"
-                f"Sentiment: {review.get('sentiment_label', 'neutral')}"
+                f"Sentiment: {sentiment}"
             )
 
         review_summary = "\n\n".join(review_texts)
@@ -141,9 +144,9 @@ Analyze this user's review history and purchase patterns. What are their major c
 
         chain = prompt | self.llm
         response = chain.invoke({
-            "name": user.get("name", "Unknown"),
+            "name": user.get("user_name", "Unknown"),
             "age": user.get("age", "Unknown"),
-            "location": user.get("location", "Unknown"),
+            "location": user.get("base_location", "Unknown"),
             "gender": user.get("gender", "Unknown"),
             "transaction_count": len(similar_transactions),
             "review_count": len(user_reviews),
@@ -228,9 +231,9 @@ what are their likely concerns, expectations, and motivations?
         chain = prompt | self.llm
         response = chain.invoke(
             {
-                "name": user.get("name", "Unknown"),
+                "name": user.get("user_name", "Unknown"),
                 "age": user.get("age", "Unknown"),
-                "location": user.get("location", "Unknown"),
+                "location": user.get("base_location", "Unknown"),
                 "transactions": txn_summary,
                 "other_reviews": other_reviews_summary,
                 "format_instructions": self.parser.get_format_instructions(),
@@ -270,7 +273,6 @@ Name: {name}
 Age: {age}
 Location: {location}
 Gender: {gender}
-Income Level: {income_level}
 
 This user has no similar purchase history. Based on their demographic profile, what are their likely:
 - Concerns when purchasing products
@@ -287,11 +289,10 @@ This user has no similar purchase history. Based on their demographic profile, w
         chain = prompt | self.llm
         response = chain.invoke(
             {
-                "name": user.get("name", "Unknown"),
+                "name": user.get("user_name", "Unknown"),
                 "age": user.get("age", "Unknown"),
-                "location": user.get("location", "Unknown"),
+                "location": user.get("base_location", "Unknown"),
                 "gender": user.get("gender", "Unknown"),
-                "income_level": user.get("income_level", "median"),
                 "format_instructions": self.parser.get_format_instructions(),
             }
         )
