@@ -383,7 +383,7 @@ class MockDataOrchestrator:
         avg_purchases_per_user_main = len(main_product_transactions) / main_product_users if main_product_users > 0 else 0
         review_rate_main = (len(main_product_reviews) / len(main_product_transactions) * 100) if len(main_product_transactions) > 0 else 0
 
-        logger.info(f"📊 Final Stats:")
+        logger.info(f"📊 Historical Data Stats:")
         logger.info(f"   Products: {len(all_products)} | Users: {len(all_users)}")
         logger.info(f"   Transactions: {len(transactions)} | Reviews: {len(reviews)}")
         logger.info(f"   Main Product: {len(main_product_transactions)} txns, {len(main_product_reviews)} reviews, {main_product_users} unique buyers")
@@ -391,7 +391,29 @@ class MockDataOrchestrator:
         logger.info(f"   Main User: {len(main_user_transactions)} txns, {len(main_user_reviews)} reviews, {main_user_products} different products")
 
         # ============================================================
-        # STEP 6: BATCH GENERATE EMBEDDINGS (OPTIMIZED)
+        # CRITICAL STEP: CREATE CURRENT TRANSACTION (Survey Trigger)
+        # ============================================================
+        logger.info("🎯 CRITICAL: Creating CURRENT transaction (Survey/Review Trigger)")
+        logger.info("   ⏰ Timeline: Historical Data (past) → CURRENT Transaction (now) → Survey/Review (future)")
+        logger.info("   📦 This represents the delivery that JUST happened and triggers the survey")
+
+        # ALWAYS create the current transaction (Main User + Main Product)
+        # This is independent of userPurchasedExact (which refers to PAST purchases)
+        # is_current=True ensures this gets the LATEST timestamp (2-7 days ago)
+        current_transaction = self.trx_agent.create_main_user_exact_transaction(
+            main_user=main_user,
+            main_product=main_product,
+            is_current=True  # Creates transaction with recent timestamp (survey trigger)
+        )
+        transactions.append(current_transaction)
+
+        logger.info(f"✅ CURRENT transaction created: {current_transaction['transaction_id']}")
+        logger.info(f"   User: {main_user_id} | Product: {main_product_id}")
+        logger.info(f"   Order Date: {current_transaction.get('order_date')}")
+        logger.info(f"   Delivery Date: {current_transaction.get('delivery_date')}")
+        logger.info(f"   Status: {current_transaction.get('transaction_status', 'delivered')}")
+        logger.info(f"   This is the LATEST transaction (most recent timestamp)")
+
         # ============================================================
         # STEP 6: CALCULATE USER ENGAGEMENT METRICS
         # ============================================================
