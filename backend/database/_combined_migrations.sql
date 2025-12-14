@@ -6,10 +6,10 @@
 -- ============================================================================
 
 -- Drop tables in reverse dependency order (drop dependent tables first)
+DROP TABLE IF EXISTS survey_details CASCADE;
 DROP TABLE IF EXISTS reviews CASCADE;
-DROP TABLE IF EXISTS transactions CASCADE;
 DROP TABLE IF EXISTS survey_sessions CASCADE;
-DROP TABLE IF EXISTS survey CASCADE;
+DROP TABLE IF EXISTS transactions CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 
@@ -254,81 +254,91 @@ COMMENT ON COLUMN reviews.source IS 'Provenance: rapidapi (scraped from Amazon),
 COMMENT ON COLUMN reviews.manual_or_agent_generated IS 'Content authorship: manual (human-written text), agent (AI-generated text)';
 
 
--- Migration: Create SURVEY table
--- Core table for the agentic GenAI survey system
-
-CREATE TABLE IF NOT EXISTS survey (
-    scenario_id UUID DEFAULT uuid_generate_v4(),
-    item_id VARCHAR(20) NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    transaction_id UUID NOT NULL REFERENCES transactions(transaction_id) ON DELETE CASCADE,
-    survey_id UUID REFERENCES reviews(review_id) ON DELETE CASCADE,
-    question_id UUID DEFAULT uuid_generate_v4(),
-
-    -- Question details
-    question_number INTEGER NOT NULL,
-    question TEXT NOT NULL,
-    options_object JSONB, -- Flexible JSON structure for different question types
-    selected_option TEXT, -- User's selected answer/option
-
-    -- GenAI validation
-    correctly_anticipates_user_sentiment BOOLEAN,
-
-    -- Metadata
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    -- Composite primary key
-    PRIMARY KEY (scenario_id, question_id),
-
-    -- Constraints
-    CONSTRAINT check_question_number CHECK (question_number > 0)
-);
-
--- Indexes for survey
-CREATE INDEX IF NOT EXISTS idx_survey_item_id ON survey(item_id);
-CREATE INDEX IF NOT EXISTS idx_survey_user_id ON survey(user_id);
-CREATE INDEX IF NOT EXISTS idx_survey_transaction_id ON survey(transaction_id);
-CREATE INDEX IF NOT EXISTS idx_survey_survey_id ON survey(survey_id);
-CREATE INDEX IF NOT EXISTS idx_survey_scenario_id ON survey(scenario_id);
-
--- Comments
-COMMENT ON TABLE survey IS 'Core agentic survey system - dynamically generated questions';
-COMMENT ON COLUMN survey.correctly_anticipates_user_sentiment IS 'Ground truth for training/fine-tuning the agent';
-
-
 -- Migration: Create SURVEY_SESSIONS table
--- Tracks entire survey sessions for analytics and agent improvement
+-- Tracks entire survey sessions with agent contexts and final results
 
-CREATE TABLE IF NOT EXISTS survey_sessions (
+DROP TABLE IF EXISTS survey_sessions CASCADE;
+
+CREATE TABLE survey_sessions (
     session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    item_id VARCHAR(20) NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
     transaction_id UUID NOT NULL REFERENCES transactions(transaction_id) ON DELETE CASCADE,
 
-    -- Session metadata
+    -- Session lifecycle
     started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     completed_at TIMESTAMP WITH TIME ZONE,
     is_completed BOOLEAN DEFAULT FALSE,
-    total_questions INTEGER DEFAULT 0,
-    answered_questions INTEGER DEFAULT 0,
 
-    -- Agent performance metrics
+    -- Agent outputs (JSONB)
+    product_context JSONB,        -- ProductContext agent output
+    customer_context JSONB,       -- CustomerContext agent output
+    questions_and_answers JSONB,  -- Final Q&A pairs when completed
+
+    -- Temporary state storage (JSONB)
+    session_context JSONB,        -- Temporary state during survey (current_state, form_data)
+
+    -- Performance metrics
     average_confidence_score DECIMAL(3, 2),
     sentiment_prediction_accuracy DECIMAL(3, 2),
-
-    -- Session context (for agent to maintain state)
-    session_context JSONB, -- Stores conversation history, user preferences, etc.
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_survey_sessions_user_id ON survey_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_survey_sessions_transaction_id ON survey_sessions(transaction_id);
-CREATE INDEX IF NOT EXISTS idx_survey_sessions_completed ON survey_sessions(is_completed);
+-- Indexes
+CREATE INDEX idx_survey_sessions_user_id ON survey_sessions(user_id);
+CREATE INDEX idx_survey_sessions_item_id ON survey_sessions(item_id);
+CREATE INDEX idx_survey_sessions_transaction_id ON survey_sessions(transaction_id);
+CREATE INDEX idx_survey_sessions_completed ON survey_sessions(is_completed);
 
 -- Comments
-COMMENT ON TABLE survey_sessions IS 'Tracks survey sessions for analytics and agent learning';
+COMMENT ON TABLE survey_sessions IS 'Tracks survey sessions with agent contexts and final results';
+COMMENT ON COLUMN survey_sessions.product_context IS 'ProductContextAgent output (JSONB)';
+COMMENT ON COLUMN survey_sessions.customer_context IS 'CustomerContextAgent output (JSONB)';
+COMMENT ON COLUMN survey_sessions.questions_and_answers IS 'Final aggregated Q&A pairs (populated when is_completed=TRUE)';
+
+
+-- Migration: Create SURVEY_DETAILS table
+-- Event log for tracking all survey interactions and updates
+
+DROP TABLE IF EXISTS survey_details CASCADE;
+
+CREATE TABLE survey_details (
+    session_id UUID NOT NULL REFERENCES survey_sessions(session_id) ON DELETE CASCADE,
+    detail_id UUID DEFAULT uuid_generate_v4(),
+
+    -- Event metadata
+    event_type VARCHAR(50) NOT NULL CHECK (event_type IN (
+        'question_generated',
+        'answer_submitted',
+        'answer_updated',
+        'answer_skipped',
+        'question_updated',
+        'survey_incomplete',
+        'survey_aborted',
+        'survey_completed'
+    )),
+
+    -- Flexible event data (JSONB)
+    -- Can be empty/null for survey_incomplete and survey_aborted events
+    event_detail JSONB,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    -- Composite primary key
+    PRIMARY KEY (session_id, detail_id)
+);
+
+-- Indexes
+CREATE INDEX idx_survey_details_session_id ON survey_details(session_id);
+CREATE INDEX idx_survey_details_event_type ON survey_details(event_type);
+CREATE INDEX idx_survey_details_created_at ON survey_details(created_at);
+
+-- Comments
+COMMENT ON TABLE survey_details IS 'Event log of all survey interactions for analytics and reconstruction';
+COMMENT ON COLUMN survey_details.event_type IS 'Type of event: question_generated, answer_submitted, answer_updated, answer_skipped, question_updated, survey_incomplete, survey_aborted, survey_completed';
+COMMENT ON COLUMN survey_details.event_detail IS 'Flexible JSONB field containing event-specific data (question, answer, metadata). Can be empty for survey_incomplete/survey_aborted events';
 
 
 -- Migration: Create Triggers
@@ -358,10 +368,6 @@ CREATE TRIGGER update_transactions_updated_at BEFORE UPDATE ON transactions
 
 DROP TRIGGER IF EXISTS update_reviews_updated_at ON reviews;
 CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON reviews
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-DROP TRIGGER IF EXISTS update_survey_updated_at ON survey;
-CREATE TRIGGER update_survey_updated_at BEFORE UPDATE ON survey
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 DROP TRIGGER IF EXISTS update_survey_sessions_updated_at ON survey_sessions;
@@ -400,8 +406,8 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
-ALTER TABLE survey ENABLE ROW LEVEL SECURITY;
 ALTER TABLE survey_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE survey_details ENABLE ROW LEVEL SECURITY;
 
 -- Allow anonymous read access to products (public catalog)
 DROP POLICY IF EXISTS "Allow public read access to products" ON products;
@@ -437,19 +443,23 @@ ON reviews FOR INSERT
 TO authenticated
 WITH CHECK (user_id = auth.uid()::uuid);
 
--- Users can view their own survey questions
-DROP POLICY IF EXISTS "Users can view their own survey questions" ON survey;
-CREATE POLICY "Users can view their own survey questions"
-ON survey FOR SELECT
-TO authenticated
-USING (user_id = auth.uid()::uuid);
-
 -- Users can view their own survey sessions
 DROP POLICY IF EXISTS "Users can view their own survey sessions" ON survey_sessions;
 CREATE POLICY "Users can view their own survey sessions"
 ON survey_sessions FOR SELECT
 TO authenticated
 USING (user_id = auth.uid()::uuid);
+
+-- Users can view their own survey details
+DROP POLICY IF EXISTS "Users can view their own survey details" ON survey_details;
+CREATE POLICY "Users can view their own survey details"
+ON survey_details FOR SELECT
+TO authenticated
+USING (
+    session_id IN (
+        SELECT session_id FROM survey_sessions WHERE user_id = auth.uid()::uuid
+    )
+);
 
 
 -- Migration: Add conversation_history column to existing survey_sessions table

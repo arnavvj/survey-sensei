@@ -5,27 +5,23 @@ Applies SQL migrations using Supabase REST API
 """
 
 import sys
+import os
 from pathlib import Path
 
 # Add backend directory to Python path
 backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
-from config import settings
+# Try to load settings, but don't fail if env vars are missing
+try:
+    from config import settings
+    SUPABASE_URL = settings.supabase_url
+except Exception:
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "https://YOUR_PROJECT.supabase.co")
 
 
 def execute_sql(sql: str) -> bool:
     """Execute SQL using Supabase REST API"""
-
-    # Use Supabase's database REST API
-    # This uses the PostgREST endpoint for raw SQL execution
-    url = f"{settings.supabase_url}/rest/v1/rpc/exec_sql"
-
-    headers = {
-        "apikey": settings.supabase_service_role_key,
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
-        "Content-Type": "application/json",
-    }
 
     # Note: Supabase doesn't allow arbitrary SQL execution via REST API
     # We need to use the SQL editor or psql for this
@@ -96,11 +92,11 @@ def main():
     print("  How to Apply These Migrations")
     print("="*70 + "\n")
 
-    project_ref = settings.supabase_url.split("//")[1].split(".")[0]
+    project_ref = SUPABASE_URL.split("//")[1].split(".")[0]
 
     print("Option 1: Supabase SQL Editor (Easiest)")
     print("-" * 70)
-    print(f"1. Open: {settings.supabase_url}/project/default/sql/new")
+    print(f"1. Open: {SUPABASE_URL}/project/default/sql/new")
     print("2. Copy ALL the SQL above (starting from the first migration)")
     print("3. Paste into SQL Editor and click 'Run'")
 
@@ -108,7 +104,7 @@ def main():
     print("-" * 70)
     print("1. Install PostgreSQL client: https://www.postgresql.org/download/")
     print("2. Get database password from Supabase Dashboard:")
-    print(f"   {settings.supabase_url}/project/default/settings/database")
+    print(f"   {SUPABASE_URL}/project/default/settings/database")
     print("\n3. Run migrations:\n")
     print("   On macOS/Linux:")
     print(f"   export PGPASSWORD='your-db-password'")
@@ -150,10 +146,10 @@ def main():
 -- ============================================================================
 
 -- Drop tables in reverse dependency order (drop dependent tables first)
+DROP TABLE IF EXISTS survey_details CASCADE;
 DROP TABLE IF EXISTS reviews CASCADE;
-DROP TABLE IF EXISTS transactions CASCADE;
 DROP TABLE IF EXISTS survey_sessions CASCADE;
-DROP TABLE IF EXISTS survey CASCADE;
+DROP TABLE IF EXISTS transactions CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 

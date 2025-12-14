@@ -27,10 +27,6 @@ DROP TRIGGER IF EXISTS update_reviews_updated_at ON reviews;
 CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON reviews
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-DROP TRIGGER IF EXISTS update_survey_updated_at ON survey;
-CREATE TRIGGER update_survey_updated_at BEFORE UPDATE ON survey
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
 DROP TRIGGER IF EXISTS update_survey_sessions_updated_at ON survey_sessions;
 CREATE TRIGGER update_survey_sessions_updated_at BEFORE UPDATE ON survey_sessions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

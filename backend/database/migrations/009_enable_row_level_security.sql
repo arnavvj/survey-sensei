@@ -6,8 +6,8 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
-ALTER TABLE survey ENABLE ROW LEVEL SECURITY;
 ALTER TABLE survey_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE survey_details ENABLE ROW LEVEL SECURITY;
 
 -- Allow anonymous read access to products (public catalog)
 DROP POLICY IF EXISTS "Allow public read access to products" ON products;
@@ -43,16 +43,20 @@ ON reviews FOR INSERT
 TO authenticated
 WITH CHECK (user_id = auth.uid()::uuid);
 
--- Users can view their own survey questions
-DROP POLICY IF EXISTS "Users can view their own survey questions" ON survey;
-CREATE POLICY "Users can view their own survey questions"
-ON survey FOR SELECT
-TO authenticated
-USING (user_id = auth.uid()::uuid);
-
 -- Users can view their own survey sessions
 DROP POLICY IF EXISTS "Users can view their own survey sessions" ON survey_sessions;
 CREATE POLICY "Users can view their own survey sessions"
 ON survey_sessions FOR SELECT
 TO authenticated
 USING (user_id = auth.uid()::uuid);
+
+-- Users can view their own survey details
+DROP POLICY IF EXISTS "Users can view their own survey details" ON survey_details;
+CREATE POLICY "Users can view their own survey details"
+ON survey_details FOR SELECT
+TO authenticated
+USING (
+    session_id IN (
+        SELECT session_id FROM survey_sessions WHERE user_id = auth.uid()::uuid
+    )
+);
