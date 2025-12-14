@@ -205,6 +205,48 @@ class SupabaseDB:
         )
         return response.data
 
+    def get_user_transaction_for_product(
+        self, user_id: str, item_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get user's transaction for a specific product"""
+        response = (
+            self.client.table("transactions")
+            .select("*, products(*)")
+            .eq("user_id", user_id)
+            .eq("item_id", item_id)
+            .order("order_date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
+    def get_review_by_transaction_id(
+        self, transaction_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get review for a specific transaction"""
+        response = (
+            self.client.table("reviews")
+            .select("*")
+            .eq("transaction_id", transaction_id)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
+    def get_reviews_by_transaction_ids(
+        self, transaction_ids: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Get reviews for multiple transactions"""
+        if not transaction_ids:
+            return []
+        response = (
+            self.client.table("reviews")
+            .select("*")
+            .in_("transaction_id", transaction_ids)
+            .execute()
+        )
+        return response.data
+
     def insert_users_batch(self, users: List[Dict[str, Any]]) -> int:
         """
         Batch insert/upsert users into database

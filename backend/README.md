@@ -300,15 +300,125 @@ print(f"Key Features: {context.key_features}")
 
 **See Also:** [backend/tests/test_product_context_agent.py](tests/test_product_context_agent.py) for comprehensive test examples
 
-### Agent 2: Customer Context
+### Agent 2: Customer Context (CustomerContextAgent)
+
+**Autonomous agent that generates customer context without form_data dependency**
+
+**Three-Path Decision Logic:**
 
 ```
-User purchased similar?
-  Yes → User reviewed them?
-          Yes → Extract from user's reviews
-          No  → Derive from purchase history
-  No  → Use demographic profile
+1. Check user's transaction history for THIS product (autonomous database query)
+   ↓
+2. Path Decision:
+
+   Path 1: Exact Interaction - User purchased/reviewed THIS product
+   → Generate from: User's purchase + review (if exists) + demographics + engagement metrics
+   → Confidence: 0.85-0.95
+
+   Path 2: Similar Products - User has similar product purchases via vector search
+   → Generate from: Similar product purchases + reviews + demographics + engagement metrics
+   → Smart Ranking: Similarity (45%), Recency (30%), Engagement (25%)
+   → Confidence: 0.55-0.80
+
+   Path 3: Demographics Only - No purchase history
+   → Generate from: Demographics + engagement metrics only
+   → Confidence: 0.35-0.45
 ```
+
+**Key Features:**
+- **Autonomous Operation**: No form_data required; queries database directly for `user_id` and `item_id`
+- **Smart Ranking Algorithm**: Multi-factor scoring with similarity, recency (180-day exponential decay), and engagement
+- **Vector Similarity Search**: Uses pgvector cosine similarity (threshold: 0.7) to find similar purchases
+- **Confidence Scoring**: Dynamic confidence based on data availability and quality
+- **Engagement Metrics Integration**: Leverages newly added user engagement metrics (review_engagement_rate, sentiment_tendency, engagement_level)
+- **Silent Purchase Analysis**: Extracts behavioral signals from purchases without reviews
+
+**Ranking Algorithms:**
+
+*Path 2 - Similar Product Transactions Ranking:*
+- Similarity: 45% weight (HIGHEST - vector similarity score)
+- Recency: 30% weight (exponential decay, 180-day half-life)
+- Engagement: 25% weight (binary: 1.0 if reviewed, 0.0 if not)
+
+**Output Schema:**
+```python
+class CustomerContext(BaseModel):
+    # Behavioral Insights (Primary)
+    purchase_patterns: List[str]        # Observable purchase behaviors
+    review_behavior: List[str]          # Review patterns
+    product_preferences: List[str]      # Category/type preferences
+
+    # Concerns & Expectations (Survey-focused)
+    primary_concerns: List[str]         # Top 3-5 concerns from reviews/history
+    expectations: List[str]             # What user expects
+    pain_points: List[str]              # Recurring frustrations
+
+    # Engagement Metrics (from users table)
+    engagement_level: str               # highly_engaged | moderately_engaged | passive_buyer | new_user
+    sentiment_tendency: str             # positive | critical | balanced | polarized | neutral
+    review_engagement_rate: float       # 0.0-1.0 (% of purchases reviewed)
+
+    # Metadata
+    context_type: str                   # "exact_interaction" | "similar_products" | "demographics_only"
+    confidence_score: float             # 0.0-1.0 (validated)
+    data_points_used: int               # Number of transactions/reviews analyzed
+```
+
+**Database Dependencies:**
+- `users` table: user_id, user_name, age, base_location, gender, total_purchases, total_reviews, review_engagement_rate, avg_review_rating, sentiment_tendency, engagement_level
+- `transactions` table: transaction_id, user_id, item_id, order_date, final_price, transaction_status
+- `reviews` table: review_id, transaction_id, user_id, item_id, review_stars, review_text, review_title, timestamp
+- `products` table: item_id, title, brand, embeddings (vector)
+
+**Usage:**
+```python
+from agents.customer_context_agent import CustomerContextAgent
+
+agent = CustomerContextAgent()
+
+# Autonomous operation - no form_data needed
+context = agent.generate_context(
+    user_id="550e8400-e29b-41d4-a716-446655440000",
+    item_id="B09XYZ1234"
+)
+
+print(f"Context Type: {context.context_type}")
+print(f"Confidence: {context.confidence_score}")
+print(f"Purchase Patterns: {context.purchase_patterns}")
+print(f"Primary Concerns: {context.primary_concerns}")
+print(f"Engagement Level: {context.engagement_level}")
+print(f"Data Points Used: {context.data_points_used}")
+```
+
+**Path Examples:**
+
+*Path 1 - Exact Interaction (Highest Quality):*
+```python
+# User purchased THIS product
+context = agent.generate_context(user_id="...", item_id="B09XYZ1234")
+# Result: context_type="exact_interaction", confidence_score=0.95 (if reviewed) or 0.85 (if not)
+```
+
+*Path 2 - Similar Products (Medium-High Quality):*
+```python
+# User purchased similar products (e.g., other laptops when querying for a laptop)
+context = agent.generate_context(user_id="...", item_id="B09ABC5678")
+# Result: context_type="similar_products", confidence_score=0.55-0.80 (based on similarity + reviews)
+```
+
+*Path 3 - Demographics Only (Low Quality):*
+```python
+# New user with no purchase history
+context = agent.generate_context(user_id="...", item_id="B09DEF9012")
+# Result: context_type="demographics_only", confidence_score=0.35
+```
+
+**Confidence Scoring:**
+- **Path 1**: 0.95 (with review) or 0.85 (without review)
+- **Path 2**: Base 0.55 + review bonus (up to +0.15) + similarity bonus (up to +0.10) = max 0.80
+- **Path 3**: Fixed 0.35
+
+**See Also:** Customer Context Agent tests for comprehensive usage examples
 
 ### Agent 3: Survey Flow
 
