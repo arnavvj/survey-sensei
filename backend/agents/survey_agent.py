@@ -79,17 +79,14 @@ class SurveyAgent:
         session_context = session.get("session_context", {})
         form_data = session_context.get("form_data", {}) if isinstance(session_context, dict) else {}
 
+        # Use upgraded autonomous context agents (no form_data dependencies)
         product_context = product_context_agent.generate_context(
-            item_id=state["item_id"],
-            has_reviews=form_data.get("hasReviews") == "yes",
-            form_data=form_data,
+            item_id=state["item_id"]
         )
 
         customer_context = customer_context_agent.generate_context(
-            user_email=form_data.get("userPersona", {}).get("email", ""),
-            item_id=state["item_id"],
-            has_purchased_similar=form_data.get("userHasPurchasedSimilar") == "yes",
-            form_data=form_data,
+            user_id=state["user_id"],
+            item_id=state["item_id"]
         )
 
         return {
