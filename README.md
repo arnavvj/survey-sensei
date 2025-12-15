@@ -470,7 +470,3 @@ This is a demonstration project showcasing AI agent architecture and full-stack 
 MIT
 
 ---
-
-**Version**: 1.0.0
-**Status**: Production Ready
-**Author**: Arnav Jeurkar
