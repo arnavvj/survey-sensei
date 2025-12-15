@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     review_stars INTEGER NOT NULL, -- 1-5
 
     -- Source tracking
-    source VARCHAR(20) NOT NULL DEFAULT 'agent_generated', -- 'rapidapi', 'agent_generated', 'user_submitted'
+    source VARCHAR(20) NOT NULL DEFAULT 'agent_generated', -- 'rapidapi', 'agent_generated', 'user_survey'
     manual_or_agent_generated VARCHAR(20) NOT NULL DEFAULT 'agent', -- 'manual' (human-written), 'agent' (AI-generated)
 
     -- GenAI features
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 
     -- Constraints
     CONSTRAINT check_review_stars CHECK (review_stars >= 1 AND review_stars <= 5),
-    CONSTRAINT check_source CHECK (source IN ('rapidapi', 'agent_generated', 'user_submitted')),
+    CONSTRAINT check_source CHECK (source IN ('rapidapi', 'agent_generated', 'user_survey')),
     CONSTRAINT check_manual_or_agent CHECK (manual_or_agent_generated IN ('manual', 'agent')),
     CONSTRAINT unique_review_per_transaction UNIQUE(transaction_id)
 );
@@ -43,5 +43,5 @@ CREATE INDEX IF NOT EXISTS idx_reviews_manual_or_agent ON reviews(manual_or_agen
 -- Comments
 COMMENT ON TABLE reviews IS 'User-generated reviews with AI-generated embeddings and sentiment';
 COMMENT ON COLUMN reviews.embeddings IS 'Review text embeddings for semantic analysis (reserved for future survey framework enhancements)';
-COMMENT ON COLUMN reviews.source IS 'Provenance: rapidapi (scraped from Amazon), agent_generated (by MOCK_RVW_MINI_AGENT), user_submitted (from future survey)';
+COMMENT ON COLUMN reviews.source IS 'Provenance: rapidapi (scraped from Amazon), agent_generated (by MOCK_RVW_MINI_AGENT), user_survey (submitted via survey flow)';
 COMMENT ON COLUMN reviews.manual_or_agent_generated IS 'Content authorship: manual (human-written text), agent (AI-generated text)';

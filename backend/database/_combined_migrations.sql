@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     review_stars INTEGER NOT NULL, -- 1-5
 
     -- Source tracking
-    source VARCHAR(20) NOT NULL DEFAULT 'agent_generated', -- 'rapidapi', 'agent_generated', 'user_submitted'
+    source VARCHAR(20) NOT NULL DEFAULT 'agent_generated', -- 'rapidapi', 'agent_generated', 'user_survey'
     manual_or_agent_generated VARCHAR(20) NOT NULL DEFAULT 'agent', -- 'manual' (human-written), 'agent' (AI-generated)
 
     -- GenAI features
@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 
     -- Constraints
     CONSTRAINT check_review_stars CHECK (review_stars >= 1 AND review_stars <= 5),
-    CONSTRAINT check_source CHECK (source IN ('rapidapi', 'agent_generated', 'user_submitted')),
+    CONSTRAINT check_source CHECK (source IN ('rapidapi', 'agent_generated', 'user_survey')),
     CONSTRAINT check_manual_or_agent CHECK (manual_or_agent_generated IN ('manual', 'agent')),
     CONSTRAINT unique_review_per_transaction UNIQUE(transaction_id)
 );
@@ -250,7 +250,7 @@ CREATE INDEX IF NOT EXISTS idx_reviews_manual_or_agent ON reviews(manual_or_agen
 -- Comments
 COMMENT ON TABLE reviews IS 'User-generated reviews with AI-generated embeddings and sentiment';
 COMMENT ON COLUMN reviews.embeddings IS 'Review text embeddings for semantic analysis (reserved for future survey framework enhancements)';
-COMMENT ON COLUMN reviews.source IS 'Provenance: rapidapi (scraped from Amazon), agent_generated (by MOCK_RVW_MINI_AGENT), user_submitted (from future survey)';
+COMMENT ON COLUMN reviews.source IS 'Provenance: rapidapi (scraped from Amazon), agent_generated (by MOCK_RVW_MINI_AGENT), user_survey (submitted via survey flow)';
 COMMENT ON COLUMN reviews.manual_or_agent_generated IS 'Content authorship: manual (human-written text), agent (AI-generated text)';
 
 
@@ -265,22 +265,16 @@ CREATE TABLE survey_sessions (
     item_id VARCHAR(20) NOT NULL REFERENCES products(item_id) ON DELETE CASCADE,
     transaction_id UUID NOT NULL REFERENCES transactions(transaction_id) ON DELETE CASCADE,
 
-    -- Session lifecycle
-    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    completed_at TIMESTAMP WITH TIME ZONE,
-    is_completed BOOLEAN DEFAULT FALSE,
-
     -- Agent outputs (JSONB)
     product_context JSONB,        -- ProductContext agent output
     customer_context JSONB,       -- CustomerContext agent output
+
+    -- Survey state at completion/abortion (JSONB)
+    session_context JSONB,        -- Complete survey agent state + review generation inputs - populated at end and when reviews generated
+
+    -- Final results (JSONB)
     questions_and_answers JSONB,  -- Final Q&A pairs when completed
-
-    -- Temporary state storage (JSONB)
-    session_context JSONB,        -- Temporary state during survey (current_state, form_data)
-
-    -- Performance metrics
-    average_confidence_score DECIMAL(3, 2),
-    sentiment_prediction_accuracy DECIMAL(3, 2),
+    review_options JSONB,         -- Generated review options (3 options with titles, text, stars, tone, highlights, sentiment_band)
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -290,13 +284,14 @@ CREATE TABLE survey_sessions (
 CREATE INDEX idx_survey_sessions_user_id ON survey_sessions(user_id);
 CREATE INDEX idx_survey_sessions_item_id ON survey_sessions(item_id);
 CREATE INDEX idx_survey_sessions_transaction_id ON survey_sessions(transaction_id);
-CREATE INDEX idx_survey_sessions_completed ON survey_sessions(is_completed);
 
 -- Comments
 COMMENT ON TABLE survey_sessions IS 'Tracks survey sessions with agent contexts and final results';
-COMMENT ON COLUMN survey_sessions.product_context IS 'ProductContextAgent output (JSONB)';
-COMMENT ON COLUMN survey_sessions.customer_context IS 'CustomerContextAgent output (JSONB)';
-COMMENT ON COLUMN survey_sessions.questions_and_answers IS 'Final aggregated Q&A pairs (populated when is_completed=TRUE)';
+COMMENT ON COLUMN survey_sessions.product_context IS 'ProductContextAgent output (JSONB) - populated at session start';
+COMMENT ON COLUMN survey_sessions.customer_context IS 'CustomerContextAgent output (JSONB) - populated at session start';
+COMMENT ON COLUMN survey_sessions.session_context IS 'Complete survey agent state + review generation inputs (survey_responses, product_context, customer_context, user_reviews, timestamps)';
+COMMENT ON COLUMN survey_sessions.questions_and_answers IS 'Final aggregated Q&A pairs (populated when survey is completed)';
+COMMENT ON COLUMN survey_sessions.review_options IS 'Generated review options with sentiment_band (populated when reviews are generated)';
 
 
 -- Migration: Create SURVEY_DETAILS table
@@ -460,33 +455,6 @@ USING (
         SELECT session_id FROM survey_sessions WHERE user_id = auth.uid()::uuid
     )
 );
-
-
--- Migration: Add conversation_history column to existing survey_sessions table
--- This handles the case where the table exists but is missing this column
-
-DO $$
-BEGIN
-    -- Check if conversation_history column exists
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-        AND table_name = 'survey_sessions'
-        AND column_name = 'conversation_history'
-    ) THEN
-        -- Add the column
-        ALTER TABLE survey_sessions
-        ADD COLUMN conversation_history JSONB DEFAULT '[]'::jsonb;
-
-        RAISE NOTICE 'Added conversation_history column to survey_sessions table';
-    ELSE
-        RAISE NOTICE 'conversation_history column already exists in survey_sessions table';
-    END IF;
-END $$;
-
--- Add comment
-COMMENT ON COLUMN survey_sessions.conversation_history IS 'Stores conversation messages between agent and user during survey';
 
 
 -- Function for vector similarity search on products
