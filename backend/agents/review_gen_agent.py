@@ -72,6 +72,9 @@ class WritingStyleAnalysis(BaseModel):
 class ReviewOption(BaseModel):
     """Single review option with star rating"""
 
+    review_title: str = Field(
+        description="Catchy, concise review title (5-10 words) that summarizes the review"
+    )
     review_text: str = Field(description="Natural language review text")
     review_stars: int = Field(description="Star rating 1-5")
     tone: str = Field(
@@ -371,12 +374,13 @@ Customer Context:
 Generate {num_reviews} review options with star ratings: {star_ratings}
 
 Each review should:
-1. Be natural and authentic (like a real customer wrote it)
-2. Reflect the survey responses accurately
-3. Have appropriate length (50-150 words)
-4. Match the assigned star rating in tone
-5. Incorporate specific details from the survey
-6. {writing_style_instruction}
+1. Have a catchy, concise title (5-10 words) that summarizes the key point
+2. Be natural and authentic (like a real customer wrote it)
+3. Reflect the survey responses accurately
+4. Have appropriate length (50-150 words)
+5. Match the assigned star rating in tone
+6. Incorporate specific details from the survey
+7. {writing_style_instruction}
 
 {format_instructions}""",
                 ),

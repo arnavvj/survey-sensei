@@ -204,6 +204,11 @@ class RapidAPIClient:
             # Extract price from multiple possible fields
             price = self._extract_product_price(product_data)
 
+            # Ensure price is never 0 or negative (double-check fallback)
+            if price <= 0:
+                logger.warning(f"⚠️  Price is {price}, forcing fallback price generation")
+                price = self._generate_fallback_price(product_data)
+
             # Transform to our database format
             product = {
                 'item_id': product_data.get('asin', asin),

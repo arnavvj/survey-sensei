@@ -142,10 +142,8 @@ class CustomerContextAgent:
         try:
             response_text = response.content if hasattr(response, "content") else str(response)
 
-            print(f"[CustomerContext] Response type: {type(response)}")
-            print(f"[CustomerContext] Response has content attr: {hasattr(response, 'content')}")
-            print(f"[CustomerContext] Response text length: {len(response_text) if response_text else 0}")
-            print(f"[CustomerContext] Response text preview: {response_text[:500] if response_text else 'EMPTY'}")
+            # Remove debug logging - only log errors
+            # print(f"[CustomerContext] Parsing response ({len(response_text)} chars)")
 
             if response_text.startswith("```"):
                 first_newline = response_text.find("\n")
@@ -155,6 +153,12 @@ class CustomerContextAgent:
 
             json_obj = json.loads(response_text)
 
+            # Handle case where LLM returns schema format with "properties" wrapper
+            if "properties" in json_obj:
+                # Silently extract data from wrapper
+                json_obj = json_obj.get("properties", {})
+
+            # Remove description field if present (Pydantic schema artifact)
             if "description" in json_obj and len(json_obj) > 7:
                 json_obj = {k: v for k, v in json_obj.items() if k != "description"}
 
@@ -277,11 +281,35 @@ class CustomerContextAgent:
             similarity_score = txn.get("similarity_score", 0.7)
 
             # Recency score (exponential decay)
-            txn_date = txn.get("transaction_date")
-            if isinstance(txn_date, str):
-                txn_date = datetime.fromisoformat(txn_date.replace('Z', '+00:00'))
-            days_ago = (now - txn_date).days
-            recency_score = math.exp(-days_ago * math.log(2) / half_life_days)
+            # Find the most recent non-null date from transaction lifecycle
+            date_fields = [
+                txn.get("return_date"),          # Most recent if returned
+                txn.get("delivery_date"),        # Recent if delivered
+                txn.get("expected_delivery_date"),
+                txn.get("order_date"),           # Fallback to order date
+                txn.get("updated_at")            # Last fallback
+            ]
+
+            # Filter out None values and parse strings to datetime
+            valid_dates = []
+            for date_val in date_fields:
+                if date_val is not None:
+                    if isinstance(date_val, str):
+                        try:
+                            valid_dates.append(datetime.fromisoformat(date_val.replace('Z', '+00:00')))
+                        except:
+                            continue
+                    elif isinstance(date_val, datetime):
+                        valid_dates.append(date_val)
+
+            # Use the most recent date for recency calculation
+            if valid_dates:
+                txn_date = max(valid_dates)
+                days_ago = (now - txn_date).days
+                recency_score = math.exp(-days_ago * math.log(2) / half_life_days)
+            else:
+                # If no valid dates found, assign lowest recency score
+                recency_score = 0.0
 
             # Engagement score (binary: reviewed or not)
             engagement_score = 1.0 if txn.get("has_review") else 0.0
@@ -315,18 +343,24 @@ class CustomerContextAgent:
         # Build context from exact interaction
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a customer behavior analyst. This user purchased THIS EXACT PRODUCT.
-Analyze their interaction with this product and their profile to generate customer context.
-Extract specific behavioral insights, concerns, and expectations from their actual purchase and review (if available)."""),
+Analyze their interaction with this product and their complete profile to generate customer context.
+
+CRITICAL INSTRUCTIONS:
+1. Use the Engagement Metrics to infer behavioral patterns (purchase frequency, review habits, sentiment)
+2. Even without a review of THIS product, derive insights from their historical behavior metrics
+3. Generate specific, actionable insights for purchase_patterns, review_behavior, product_preferences
+4. Infer primary_concerns, expectations, and pain_points based on their engagement level and sentiment
+5. NEVER return empty arrays - always provide at least 2-3 items per field based on available data"""),
             ("human", """User Profile:
 Name: {user_name}
 Age: {age}
 Location: {location}
 Gender: {gender}
 
-Engagement Metrics:
+Engagement Metrics (across ALL historical purchases):
 - Total Purchases: {total_purchases}
 - Total Reviews: {total_reviews}
-- Review Engagement Rate: {review_engagement_rate}
+- Review Engagement Rate: {review_engagement_rate} (what % of purchases they review)
 - Avg Review Rating: {avg_review_rating}
 - Sentiment Tendency: {sentiment_tendency}
 - Engagement Level: {engagement_level}
@@ -340,8 +374,15 @@ Transaction Status: {transaction_status}
 
 {review_section}
 
-Based on this user's EXACT interaction with this product and their profile, generate comprehensive customer context.
-Focus on specific behavioral patterns, concerns, and expectations that would be relevant for a product survey.
+Based on this user's EXACT interaction with this product AND their historical engagement metrics, generate comprehensive customer context.
+
+REQUIRED OUTPUT:
+- purchase_patterns: Derive from total_purchases, review_engagement_rate (e.g., "frequent buyer", "price-conscious", "selective shopper")
+- review_behavior: Derive from total_reviews, review_engagement_rate, sentiment_tendency (e.g., "engaged reviewer", "silent buyer", "critical evaluator")
+- product_preferences: Infer from engagement_level and demographics (e.g., "quality-focused", "brand-conscious")
+- primary_concerns: Based on product category, price point, and user profile (e.g., "product quality", "value for money", "durability")
+- expectations: What this user type typically expects (e.g., "reliable performance", "good customer service")
+- pain_points: Common frustrations for this engagement level (e.g., "late delivery", "poor quality", "unclear product details")
 
 {format_instructions}"""),
         ])
@@ -356,9 +397,8 @@ Date: {review.get('timestamp', 'N/A')}"""
         else:
             review_section = "USER DID NOT REVIEW THIS PRODUCT (silent purchase - no feedback provided)"
 
-        # Invoke LLM
-        chain = prompt | self.llm
-        response = chain.invoke({
+        # Prepare input data
+        llm_input = {
             "user_name": user.get("user_name", "Unknown"),
             "age": user.get("age", "Unknown"),
             "location": user.get("base_location", "Unknown"),
@@ -371,22 +411,50 @@ Date: {review.get('timestamp', 'N/A')}"""
             "engagement_level": user.get("engagement_level", "unknown"),
             "product_title": product.get("title", "Unknown Product"),
             "brand": product.get("brand", "Unknown"),
-            "final_price": transaction.get("final_price", 0),
-            "transaction_date": transaction.get("transaction_date", "Unknown"),
+            "final_price": transaction.get("retail_price", transaction.get("original_price", 0)),
+            "transaction_date": transaction.get("order_date", transaction.get("delivery_date", "Unknown")),
             "transaction_status": transaction.get("transaction_status", "unknown"),
             "review_section": review_section,
             "format_instructions": self.parser.get_format_instructions(),
-        })
+        }
+
+        # Minimal logging - only key info
+        # print(f"[CustomerContext] Analyzing user: {llm_input['user_name']}, Product: {llm_input['product_title'][:50]}...")
+
+        # Invoke LLM
+        chain = prompt | self.llm
+        response = chain.invoke(llm_input)
+
+        # Build intelligent fallback based on user metrics
+        purchase_patterns_fallback = []
+        if user.get("total_purchases", 0) >= 5:
+            purchase_patterns_fallback.append("Frequent buyer")
+        if user.get("review_engagement_rate", 0) < 0.3:
+            purchase_patterns_fallback.append("Price-conscious shopper")
+
+        review_behavior_fallback = []
+        if user.get("review_engagement_rate", 0) >= 0.5:
+            review_behavior_fallback.append("Engaged reviewer")
+        elif user.get("review_engagement_rate", 0) < 0.3:
+            review_behavior_fallback.append("Silent buyer")
+
+        if user.get("avg_review_rating", 0) >= 4.0:
+            review_behavior_fallback.append("Positive reviewer")
 
         fallback = CustomerContext(
-            purchase_patterns=["Exact product purchaser"],
-            primary_concerns=["Product quality"],
-            expectations=["Based on exact interaction"],
+            purchase_patterns=purchase_patterns_fallback or ["Exact product purchaser"],
+            review_behavior=review_behavior_fallback or ["Selective feedback provider"],
+            primary_concerns=["Product quality", "Value for money"],
+            expectations=["Reliable performance", "Good customer service"],
+            pain_points=["Product defects", "Delivery delays"],
             context_type="exact_interaction",
             confidence_score=0.85,
             data_points_used=1
         )
         context = self._parse_llm_response(response, fallback)
+
+        # Minimal logging - only success confirmation
+        # print(f"[CustomerContext] ✓ Context generated (confidence: {context.confidence_score})")
 
         # Set metadata
         context.context_type = "exact_interaction"
