@@ -1,79 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { getRandomName, getRandomCity, generateMockEmail, generateRandomAge, generateRandomZip } from '@/lib/utils'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+// In-memory cache for tracking last generated gender (simple session-less approach)
+// Key: will use a simple counter approach - alternates automatically
+let lastGender: 'Male' | 'Female' | null = null
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('Generating user persona using GPT-4o-mini...')
+    // Accept optional lastGender from client
+    const body = await request.json().catch(() => ({}))
+    const clientLastGender = body.lastGender as 'Male' | 'Female' | null | undefined
 
-    // Use GPT-4o-mini (cheap, fast) for persona generation
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      max_tokens: 500,
-      temperature: 1.0, // High temperature for diversity
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'user',
-          content: `Generate a realistic, diverse Amazon customer persona.
+    // Use client's lastGender if provided, otherwise use server-side tracking
+    const previousGender = clientLastGender !== undefined ? clientLastGender : lastGender
 
-Requirements:
-- Name: Full name (diverse ethnic backgrounds, not just common American names)
-- Email: Realistic email address based on name (various domains: gmail, yahoo, outlook, icloud, etc.)
-- Age: Random between 18-75 (weighted towards 25-55 age range)
-- Location: Any US city/town (include small towns, suburbs, not just major cities)
-- State: Full state name (e.g., "California" not "CA")
-- ZIP: Valid 5-digit US ZIP code matching the city/state
-- Gender: Male or Female
+    // Round-robin alternating gender
+    let gender: 'Male' | 'Female'
 
-Make it feel like a real person with natural combinations (name style matches ethnicity, email matches name/age, location is diverse).
-
-Return ONLY valid JSON in this exact format:
-{
-  "name": "...",
-  "email": "...",
-  "age": ...,
-  "city": "...",
-  "state": "...",
-  "zip": "...",
-  "gender": "Male" or "Female"
-}`,
-        },
-      ],
-    })
-
-    const responseText = completion.choices[0].message.content || '{}'
-    console.log('Raw response:', responseText)
-
-    // Parse JSON response (GPT-4o-mini with json_object mode returns pure JSON)
-    const persona = JSON.parse(responseText)
-
-    // Validate required fields
-    const requiredFields = ['name', 'email', 'age', 'city', 'state', 'zip', 'gender']
-    for (const field of requiredFields) {
-      if (!persona[field]) {
-        throw new Error(`Missing required field: ${field}`)
-      }
+    if (previousGender === null) {
+      // First generation - random
+      gender = Math.random() > 0.5 ? 'Male' : 'Female'
+    } else {
+      // Alternate from last gender
+      gender = previousGender === 'Male' ? 'Female' : 'Male'
     }
 
-    // Validate types
-    if (typeof persona.age !== 'number' || persona.age < 18 || persona.age > 75) {
-      throw new Error('Invalid age')
-    }
-    if (!['Male', 'Female'].includes(persona.gender)) {
-      throw new Error('Invalid gender')
-    }
-    if (!/^\d{5}$/.test(persona.zip)) {
-      throw new Error('Invalid ZIP code format')
+    // Generate persona using diverse name list
+    const name = getRandomName(gender)
+    const city = getRandomCity()
+    const age = generateRandomAge()
+
+    const persona = {
+      name,
+      email: generateMockEmail(name),
+      age,
+      city: city.city,
+      state: city.state,
+      zip: generateRandomZip(),
+      gender,
+      location: `${city.city}, ${city.state}`,
     }
 
-    // Add location field (for backward compatibility)
-    persona.location = `${persona.city}, ${persona.state}`
-
-    console.log('Generated persona:', persona)
+    // Update server-side cache
+    lastGender = gender
 
     return NextResponse.json({
       success: true,

@@ -29,10 +29,11 @@ export function UserPersonaField({ value, onChange }: Props) {
     setIsGenerating(true)
 
     try {
-      // Try agent-based generation first
+      // Send lastGender to API for proper alternation
       const response = await fetch('/api/generate-persona', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lastGender }),
       })
 
       if (!response.ok) {
@@ -44,13 +45,10 @@ export function UserPersonaField({ value, onChange }: Props) {
       if (result.success && result.persona) {
         setPersona(result.persona)
         setLastGender(result.persona.gender)
-        // Silent - no console logging
       } else {
         throw new Error(result.error || 'Failed to generate persona')
       }
     } catch (err: any) {
-      // Silent fallback - no console warnings
-
       // Fallback to helper functions if API fails
       // Round-robin alternating gender with randomization
       let gender: 'Male' | 'Female'
@@ -80,7 +78,6 @@ export function UserPersonaField({ value, onChange }: Props) {
 
       setPersona(fallbackPersona)
       setLastGender(gender)
-      // Silent - no console logging
     } finally {
       setIsGenerating(false)
     }
