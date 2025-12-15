@@ -14,6 +14,7 @@ from integrations import RapidAPIClient
 from database import db
 import uvicorn
 import time
+from datetime import datetime
 from utils.logger import setup_logging, get_logger
 
 # Setup enhanced logging
@@ -129,7 +130,7 @@ class GenerateReviewsResponse(BaseModel):
 
 class SubmitReviewRequest(BaseModel):
     session_id: str
-    selected_review_index: int
+    selected_review_index: int  # User's choice: 0, 1, or 2
 
 
 class SubmitReviewResponse(BaseModel):
@@ -501,38 +502,63 @@ async def generate_reviews(request: GenerateReviewsRequest):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        session_context = session.get("session_context", {})
-        current_state = session_context.get("current_state", {})
+        # Get current survey state from survey_agent's in-memory cache
+        current_state = survey_agent.get_survey_state(request.session_id)
 
-        product = db.get_product_by_id(current_state.get("item_id"))
+        # Get item_id and user_id from top-level session
+        item_id = session.get("item_id")
+        user_id = session.get("user_id")
+
+        product = db.get_product_by_id(item_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
 
-        user_id = current_state.get("user_id")
         user_reviews = db.get_user_reviews(user_id, limit=10) if user_id else []
 
+        # Prepare review generation inputs (for audit trail)
+        review_gen_inputs = {
+            "survey_responses": current_state.get("answers", []),
+            "product_context": session.get("product_context", {}),
+            "customer_context": session.get("customer_context", {}),
+            "product_title": product.get("title", "this product"),
+            "user_reviews": [
+                {
+                    "review_text": r.get("review_text"),
+                    "review_stars": r.get("review_stars"),
+                    "review_title": r.get("review_title")
+                }
+                for r in user_reviews
+            ],
+        }
+
         review_options = review_gen_agent.generate_reviews(
-            survey_responses=current_state.get("answers", []),
-            product_context=current_state.get("product_context", {}),
-            customer_context=current_state.get("customer_context", {}),
-            product_title=product.get("title", "this product"),
+            survey_responses=review_gen_inputs["survey_responses"],
+            product_context=review_gen_inputs["product_context"],
+            customer_context=review_gen_inputs["customer_context"],
+            product_title=review_gen_inputs["product_title"],
             user_reviews=user_reviews,
         )
 
-        # Store generated reviews in session for later submission
-        db.update_survey_session(
+        # Store all 3 review options in review_options column
+        review_options_list = [r.dict() for r in review_options.reviews]
+        db.update_review_options(
             session_id=request.session_id,
-            conversation_history=current_state.get("conversation_history", []),
-            state="reviews_generated",
-            metadata={
-                **session_context,
-                "current_state": {
-                    **current_state,
-                    "generated_reviews": [r.dict() for r in review_options.reviews],
-                },
-            },
+            review_options=review_options_list,
+            sentiment_band=review_options.sentiment_band,
         )
 
+        # Update session_context with review generation inputs (audit trail)
+        updated_session_context = {
+            **current_state,  # Keep existing survey state
+            "review_generation_inputs": review_gen_inputs,  # Add review gen inputs
+            "review_generated_at": datetime.utcnow().isoformat(),
+        }
+        db.update_session_context(
+            session_id=request.session_id,
+            session_context=updated_session_context,
+        )
+
+        # Return options to frontend for display only
         return GenerateReviewsResponse(
             session_id=request.session_id,
             status="reviews_generated",
@@ -597,20 +623,28 @@ async def submit_review(request: SubmitReviewRequest):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        session_context = session.get("session_context", {})
-        current_state = session_context.get("current_state", {})
+        # Retrieve generated review options from review_options column (NEW)
+        review_options_data = session.get("review_options") or {}
+        review_options = review_options_data.get("options", [])
 
-        # Get selected review from generated options
-        generated_reviews = current_state.get("generated_reviews", [])
-        if not generated_reviews or request.selected_review_index >= len(generated_reviews):
+        if not review_options:
+            raise HTTPException(status_code=400, detail="No generated reviews found. Please generate reviews first.")
+
+        # Validate review index
+        if request.selected_review_index >= len(review_options):
             raise HTTPException(status_code=400, detail="Invalid review index")
 
-        selected_review = generated_reviews[request.selected_review_index]
+        selected_review = review_options[request.selected_review_index]
 
-        # Save review to database
+        # Get user_id, item_id, transaction_id from top-level session
+        user_id = session.get("user_id")
+        item_id = session.get("item_id")
+        transaction_id = session.get("transaction_id")
+
+        # Save selected review to reviews table
         review_id = db.save_generated_review(
-            user_id=current_state.get("user_id"),
-            item_id=current_state.get("item_id"),
+            user_id=user_id,
+            item_id=item_id,
             review_text=selected_review.get("review_text"),
             rating=selected_review.get("review_stars"),
             sentiment_label=selected_review.get("tone", "neutral"),
@@ -619,18 +653,19 @@ async def submit_review(request: SubmitReviewRequest):
                 "tone": selected_review.get("tone", "neutral"),
                 "generated_by": "agent_4_review_gen",
                 "highlights": selected_review.get("highlights", []),
+                "transaction_id": transaction_id,
+                "review_title": selected_review.get("review_title", "Product Review"),
             },
         )
 
-        # Mark session as completed
-        db.update_survey_session(
+        # Get current survey state and store it in session_context at completion
+        current_state = survey_agent.get_survey_state(request.session_id)
+        db.update_session_context(
             session_id=request.session_id,
-            conversation_history=current_state.get("conversation_history", []),
-            state="completed",
-            metadata={
-                **session_context,
+            session_context={
+                **current_state,  # Complete survey agent state
+                "selected_review_index": request.selected_review_index,
                 "review_id": review_id,
-                "completed": True,
             },
         )
 

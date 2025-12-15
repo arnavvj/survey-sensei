@@ -7,6 +7,7 @@ from supabase import create_client, Client
 from typing import List, Dict, Any, Optional
 from config import settings
 import numpy as np
+import asyncio
 
 
 class SupabaseDB:
@@ -205,6 +206,48 @@ class SupabaseDB:
         )
         return response.data
 
+    def get_user_transaction_for_product(
+        self, user_id: str, item_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get user's transaction for a specific product"""
+        response = (
+            self.client.table("transactions")
+            .select("*, products(*)")
+            .eq("user_id", user_id)
+            .eq("item_id", item_id)
+            .order("order_date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
+    def get_review_by_transaction_id(
+        self, transaction_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get review for a specific transaction"""
+        response = (
+            self.client.table("reviews")
+            .select("*")
+            .eq("transaction_id", transaction_id)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
+    def get_reviews_by_transaction_ids(
+        self, transaction_ids: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Get reviews for multiple transactions"""
+        if not transaction_ids:
+            return []
+        response = (
+            self.client.table("reviews")
+            .select("*")
+            .in_("transaction_id", transaction_ids)
+            .execute()
+        )
+        return response.data
+
     def insert_users_batch(self, users: List[Dict[str, Any]]) -> int:
         """
         Batch insert/upsert users into database
@@ -312,57 +355,41 @@ class SupabaseDB:
             raise
 
     # ============================================================================
-    # SURVEY OPERATIONS
+    # SURVEY OPERATIONS - NEW SCHEMA
     # ============================================================================
 
     def create_survey_session(
-        self, user_id: str, item_id: str, metadata: Dict[str, Any]
+        self,
+        user_id: str,
+        item_id: str,
+        transaction_id: str,
+        product_context: Dict[str, Any],
+        customer_context: Dict[str, Any]
     ) -> str:
         """
-        Create a new survey session and return session_id
+        Create survey session with new schema (SMP → SVP transition)
 
-        Creates a placeholder transaction for this survey session since
-        the survey_sessions table requires a transaction_id reference.
+        Populates agent contexts immediately at session start.
+        questions_and_answers, metrics populated at completion.
+
+        Args:
+            user_id: User UUID
+            item_id: Product item_id
+            transaction_id: Existing or created transaction UUID
+            product_context: ProductContext agent output (JSONB)
+            customer_context: CustomerContext agent output (JSONB)
+
+        Returns:
+            session_id: Created session UUID
         """
-        from datetime import datetime, timedelta
-        import uuid
-
-        # Fetch product price from database for the survey transaction
-        product_response = self.client.table("products").select("price").eq("item_id", item_id).execute()
-        product_price = product_response.data[0]["price"] if product_response.data else 99.99
-
-        # Create a placeholder transaction for this survey session
-        # Use actual product price for the survey transaction
-        order_date = datetime.now()
-        transaction_data = {
-            "transaction_id": str(uuid.uuid4()),
+        response = self.client.table("survey_sessions").insert({
             "user_id": user_id,
             "item_id": item_id,
-            "order_date": order_date.isoformat(),
-            "expected_delivery_date": (order_date + timedelta(days=5)).isoformat(),
-            "original_price": float(product_price),  # Use actual product price
-            "retail_price": float(product_price),  # Same as original (no discount for survey)
-            "transaction_status": "survey_pending",  # Special status for survey flows
-        }
+            "transaction_id": transaction_id,
+            "product_context": product_context,  # JSONB - frozen after start
+            "customer_context": customer_context  # JSONB - frozen after start
+        }).execute()
 
-        txn_response = self.client.table("transactions").insert(transaction_data).execute()
-        transaction_id = txn_response.data[0]["transaction_id"] if txn_response.data else None
-
-        if not transaction_id:
-            raise Exception("Failed to create placeholder transaction for survey session")
-
-        # Now create the survey session with the transaction_id
-        response = (
-            self.client.table("survey_sessions")
-            .insert(
-                {
-                    "user_id": user_id,
-                    "transaction_id": transaction_id,
-                    "session_context": metadata,  # Use session_context instead of metadata
-                }
-            )
-            .execute()
-        )
         return response.data[0]["session_id"] if response.data else None
 
     def get_survey_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -375,113 +402,146 @@ class SupabaseDB:
         )
         return response.data[0] if response.data else None
 
-    def update_survey_session(
+    def update_review_options(
         self,
         session_id: str,
-        conversation_history: List[Dict[str, Any]],
-        state: str = "active",
-        metadata: Optional[Dict[str, Any]] = None,
+        review_options: List[Dict[str, Any]],
+        sentiment_band: str
     ) -> bool:
-        """Update survey session with new conversation history and state"""
-        # Get current session_context and merge with new data
-        session = self.get_survey_session(session_id)
-        current_context = session.get("session_context", {}) if session else {}
+        """
+        Update review_options JSONB field with generated review options
 
-        # Merge metadata into session_context
-        if metadata:
-            current_context.update(metadata)
+        Args:
+            session_id: Session UUID
+            review_options: List of review option dicts (review_title, review_text, review_stars, tone, highlights)
+            sentiment_band: Sentiment classification (good/okay/bad)
 
-        # Add conversation_history to context
-        current_context["conversation_history"] = conversation_history
-
-        update_data = {
-            "session_context": current_context,
-            "is_completed": (state == "completed"),
-            "updated_at": "now()",
-        }
-
-        if state == "completed":
-            update_data["completed_at"] = "now()"
-
+        Returns:
+            bool: True if update successful
+        """
         response = (
             self.client.table("survey_sessions")
-            .update(update_data)
+            .update({
+                "review_options": {
+                    "options": review_options,
+                    "sentiment_band": sentiment_band
+                }
+            })
             .eq("session_id", session_id)
             .execute()
         )
         return bool(response.data)
 
-    def save_survey_question(
+    def update_session_context(
         self,
         session_id: str,
-        question_text: str,
-        question_options: List[str],
-        explanation: str,
-        metadata: Dict[str, Any],
-    ) -> str:
-        """Save a survey question to the database"""
-        # Get session to retrieve required fields
-        session = self.get_survey_session(session_id)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
-
-        # Get transaction to get item_id
-        transaction_id = session.get("transaction_id")
-        txn_response = (
-            self.client.table("transactions")
-            .select("item_id")
-            .eq("transaction_id", transaction_id)
-            .execute()
-        )
-        item_id = txn_response.data[0]["item_id"] if txn_response.data else None
-
-        # Extract question number from metadata
-        question_number = metadata.get("index", 0) + 1
-
-        response = (
-            self.client.table("survey")
-            .insert(
-                {
-                    "item_id": item_id,
-                    "user_id": session.get("user_id"),
-                    "transaction_id": transaction_id,
-                    "question_number": question_number,
-                    "question": question_text,
-                    "options_object": {"options": question_options, "explanation": explanation},
-                }
-            )
-            .execute()
-        )
-        return response.data[0]["question_id"] if response.data else None
-
-    def update_survey_answer(
-        self, question_id: str, selected_option: str, response_time_ms: int
+        session_context: Dict[str, Any]
     ) -> bool:
-        """Update survey question with user's answer"""
+        """
+        Update session_context JSONB field with complete survey agent state
+
+        Called at survey completion or abortion to store final state.
+
+        Args:
+            session_id: Session UUID
+            session_context: Complete survey agent state (answers, questions, conversation_history, etc.)
+
+        Returns:
+            bool: True if update successful
+        """
         response = (
-            self.client.table("survey")
-            .update(
-                {
-                    "selected_option": selected_option,
-                    "response_time_ms": response_time_ms,
-                    "answered_at": "now()",
-                }
-            )
-            .eq("question_id", question_id)
+            self.client.table("survey_sessions")
+            .update({"session_context": session_context})
+            .eq("session_id", session_id)
             .execute()
         )
         return bool(response.data)
 
-    def get_session_questions(self, session_id: str) -> List[Dict[str, Any]]:
-        """Get all questions for a survey session"""
+    def complete_survey_session(
+        self,
+        session_id: str,
+        questions_and_answers: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Complete survey session with final Q&A
+
+        Populates questions_and_answers JSONB and marks survey complete.
+        Called when survey reaches completion (not aborted).
+
+        Args:
+            session_id: Session UUID
+            questions_and_answers: List of Q&A dicts (question_number, question_text, selected_option, timestamp)
+
+        Returns:
+            bool: True if update successful
+        """
         response = (
-            self.client.table("survey")
-            .select("*")
+            self.client.table("survey_sessions")
+            .update({"questions_and_answers": questions_and_answers})
             .eq("session_id", session_id)
-            .order("created_at")
             .execute()
         )
-        return response.data
+        return bool(response.data)
+
+    # ASYNC EVENT LOGGING (FIRE-AND-FORGET)
+
+    def insert_survey_detail_sync(
+        self,
+        session_id: str,
+        event_type: str,
+        event_detail: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
+        """
+        Synchronous survey event insertion
+
+        Called by async wrapper for fire-and-forget logging.
+        Errors are caught and logged but don't crash user flow.
+
+        Args:
+            session_id: Session UUID
+            event_type: Event type (question_generated, answer_submitted, etc.)
+            event_detail: Optional JSONB event data (None for survey_incomplete/survey_aborted)
+
+        Returns:
+            detail_id: Created event UUID or None if failed
+        """
+        try:
+            response = self.client.table("survey_details").insert({
+                "session_id": session_id,
+                "event_type": event_type,
+                "event_detail": event_detail  # Can be None
+            }).execute()
+            return response.data[0]["detail_id"] if response.data else None
+        except Exception as e:
+            print(f"Failed to log survey event ({event_type}): {e}")
+            return None
+
+    async def insert_survey_detail_async(
+        self,
+        session_id: str,
+        event_type: str,
+        event_detail: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
+        """
+        Async wrapper for survey event logging
+
+        Uses asyncio.to_thread to run sync Supabase call without blocking.
+        Fire-and-forget pattern - errors logged but don't block user flow.
+
+        Args:
+            session_id: Session UUID
+            event_type: Event type enum value
+            event_detail: Optional event data
+
+        Returns:
+            detail_id: Created event UUID or None
+        """
+        return await asyncio.to_thread(
+            self.insert_survey_detail_sync,
+            session_id,
+            event_type,
+            event_detail
+        )
 
     # ============================================================================
     # REVIEW OPERATIONS
@@ -496,27 +556,20 @@ class SupabaseDB:
         sentiment_label: str,
         metadata: Dict[str, Any],
     ) -> str:
-        """Save generated review to database with embeddings"""
-        import uuid
-        from datetime import datetime
+        """
+        Save generated review to database with embeddings
+
+        Uses EXISTING transaction_id (created during data engineering SMP→SVP)
+        """
         from utils.embeddings import embedding_service
 
-        # Create a transaction for this review
-        transaction_data = {
-            "transaction_id": str(uuid.uuid4()),
-            "user_id": user_id,
-            "item_id": item_id,
-            "order_date": datetime.now().isoformat(),
-            "expected_delivery_date": datetime.now().isoformat(),
-            "original_price": 0.00,
-            "retail_price": 0.00,
-            "transaction_status": "completed",
-        }
-        txn_response = self.client.table("transactions").insert(transaction_data).execute()
-        transaction_id = txn_response.data[0]["transaction_id"] if txn_response.data else None
-
+        # Use existing transaction_id from metadata (NOT creating a new one!)
+        transaction_id = metadata.get("transaction_id")
         if not transaction_id:
-            raise Exception("Failed to create transaction for review")
+            raise ValueError(
+                "transaction_id is required in metadata. "
+                "Review must be linked to existing transaction created during data engineering."
+            )
 
         # Generate embedding for the review text
         review_embedding = embedding_service.generate_embedding(review_text)
@@ -528,12 +581,13 @@ class SupabaseDB:
                 {
                     "user_id": user_id,
                     "item_id": item_id,
-                    "transaction_id": transaction_id,
+                    "transaction_id": transaction_id,  # Uses existing transaction from data engineering
                     "review_text": review_text,
-                    "review_stars": rating,  # Correct field name
-                    "manual_or_agent_generated": "agent",
-                    "review_title": metadata.get("tone", "Generated Review"),
-                    "embeddings": review_embedding,  # Store the generated embedding
+                    "review_stars": rating,
+                    "source": "user_survey",  # Review submitted via survey (user selected from AI-generated options)
+                    "manual_or_agent_generated": "agent",  # AI-generated text, user-selected
+                    "review_title": metadata.get("review_title", "Product Review"),  # Use title from review option
+                    "embeddings": review_embedding,
                 }
             )
             .execute()

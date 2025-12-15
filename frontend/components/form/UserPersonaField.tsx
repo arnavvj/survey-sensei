@@ -22,16 +22,18 @@ interface Props {
 export function UserPersonaField({ value, onChange }: Props) {
   const [persona, setPersona] = useState<UserPersona | null>(value || null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [lastGender, setLastGender] = useState<'Male' | 'Female' | null>(null)
 
   // Generate persona using agent API (with fallback to helper functions)
   const generatePersona = async () => {
     setIsGenerating(true)
 
     try {
-      // Try agent-based generation first
+      // Send lastGender to API for proper alternation
       const response = await fetch('/api/generate-persona', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lastGender }),
       })
 
       if (!response.ok) {
@@ -42,15 +44,23 @@ export function UserPersonaField({ value, onChange }: Props) {
 
       if (result.success && result.persona) {
         setPersona(result.persona)
-        console.log('✅ Generated persona using agent:', result.persona)
+        setLastGender(result.persona.gender)
       } else {
         throw new Error(result.error || 'Failed to generate persona')
       }
     } catch (err: any) {
-      console.warn('⚠️ Agent generation failed, falling back to helper functions:', err.message)
-
       // Fallback to helper functions if API fails
-      const gender: 'Male' | 'Female' = Math.random() > 0.5 ? 'Male' : 'Female'
+      // Round-robin alternating gender with randomization
+      let gender: 'Male' | 'Female'
+
+      if (lastGender === null) {
+        // First generation - random
+        gender = Math.random() > 0.5 ? 'Male' : 'Female'
+      } else {
+        // Alternate from last gender
+        gender = lastGender === 'Male' ? 'Female' : 'Male'
+      }
+
       const name = getRandomName(gender)
       const city = getRandomCity()
       const age = generateRandomAge()
@@ -67,7 +77,7 @@ export function UserPersonaField({ value, onChange }: Props) {
       }
 
       setPersona(fallbackPersona)
-      console.log('Generated persona using fallback:', fallbackPersona)
+      setLastGender(gender)
     } finally {
       setIsGenerating(false)
     }

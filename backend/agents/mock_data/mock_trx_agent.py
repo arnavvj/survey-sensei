@@ -244,7 +244,8 @@ class MockTransactionAgent:
     def create_main_user_exact_transaction(
         self,
         main_user: Dict[str, Any],
-        main_product: Dict[str, Any]
+        main_product: Dict[str, Any],
+        is_current: bool = False
     ) -> Dict[str, Any]:
         """
         Create transaction for main user purchasing exact product
@@ -252,14 +253,23 @@ class MockTransactionAgent:
         Args:
             main_user: Main user dictionary
             main_product: Main product dictionary
+            is_current: If True, creates "current" transaction (survey trigger) with recent timestamp
+                       If False, creates historical transaction (past purchase)
 
         Returns:
             Single transaction
         """
+        if is_current:
+            # CURRENT transaction (survey trigger): delivered 2-7 days ago
+            days_ago = random.randint(2, 7)
+        else:
+            # HISTORICAL transaction (past purchase): 1-6 months ago
+            days_ago = random.randint(30, 180)
+
         return self._create_transaction(
             user=main_user,
             product=main_product,
-            days_ago=random.randint(30, 180),  # 1-6 months ago
+            days_ago=days_ago,
             is_mock=False
         )
 

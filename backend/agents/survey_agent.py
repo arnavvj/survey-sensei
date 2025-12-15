@@ -17,6 +17,7 @@ from .product_context_agent import product_context_agent, ProductContext
 from .customer_context_agent import customer_context_agent, CustomerContext
 import json
 from datetime import datetime
+import asyncio
 
 
 class SurveyQuestion(BaseModel):
@@ -58,6 +59,35 @@ class SurveyAgent:
             api_key=settings.openai_api_key,
         )
         self.graph = self._build_graph()
+        # In-memory session state cache (session_id -> state dict)
+        # Avoids database writes on every answer
+        self._session_state_cache: Dict[str, Dict[str, Any]] = {}
+
+    def _log_event_async(
+        self,
+        session_id: str,
+        event_type: str,
+        event_detail: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Fire-and-forget async event logging
+
+        Non-blocking - errors are logged but don't crash user flow.
+        Events are logged to survey_details table for analytics.
+
+        Args:
+            session_id: Session UUID
+            event_type: Event type (question_generated, answer_submitted, etc.)
+            event_detail: Optional JSONB event data
+        """
+        async def _log():
+            try:
+                await db.insert_survey_detail_async(session_id, event_type, event_detail)
+            except Exception as e:
+                print(f"Background event log failed ({event_type}): {e}")
+
+        # Fire-and-forget
+        asyncio.create_task(_log())
 
     def _build_graph(self) -> StateGraph:
         workflow = StateGraph(SurveyState)
@@ -75,31 +105,21 @@ class SurveyAgent:
         return workflow.compile()
 
     def _fetch_contexts(self, state: SurveyState) -> Dict[str, Any]:
-        session = db.get_survey_session(state["session_id"])
-        session_context = session.get("session_context", {})
-        form_data = session_context.get("form_data", {}) if isinstance(session_context, dict) else {}
-
-        product_context = product_context_agent.generate_context(
-            item_id=state["item_id"],
-            has_reviews=form_data.get("hasReviews") == "yes",
-            form_data=form_data,
-        )
-
-        customer_context = customer_context_agent.generate_context(
-            user_email=form_data.get("userPersona", {}).get("email", ""),
-            item_id=state["item_id"],
-            has_purchased_similar=form_data.get("userHasPurchasedSimilar") == "yes",
-            form_data=form_data,
-        )
-
+        """
+        Legacy node - contexts are now fetched in start_survey() before graph invocation.
+        This node is skipped by setting next_action="generate_initial_questions".
+        Kept for backwards compatibility with LangGraph structure.
+        """
+        # Contexts already in state from start_survey()
+        # Just return them with conversation_history
         return {
-            "product_context": product_context.dict(),
-            "customer_context": customer_context.dict(),
+            "product_context": state.get("product_context", {}),
+            "customer_context": state.get("customer_context", {}),
             "conversation_history": [
                 {
                     "role": "system",
-                    "content": f"Product Context: {json.dumps(product_context.dict(), indent=2)}\n\n"
-                    f"Customer Context: {json.dumps(customer_context.dict(), indent=2)}",
+                    "content": f"Product Context: {json.dumps(state.get('product_context', {}), indent=2)}\n\n"
+                    f"Customer Context: {json.dumps(state.get('customer_context', {}), indent=2)}",
                 }
             ],
         }
@@ -197,14 +217,8 @@ Generate {num_questions} initial survey questions. Each question should have 4-6
         if current_q["question_text"] not in asked_texts:
             asked_texts.append(current_q["question_text"])
 
-        # Save question to database
-        db.save_survey_question(
-            session_id=state["session_id"],
-            question_text=current_q["question_text"],
-            question_options=current_q["options"],
-            explanation=current_q.get("reasoning", ""),
-            metadata={"index": state["current_question_index"]},
-        )
+        # Note: Questions are logged via question_generated events in survey_details table
+        # No need to save to old survey table (removed for new schema)
 
         return {
             "total_questions_asked": state["total_questions_asked"] + 1,
@@ -421,20 +435,97 @@ Make questions more specific, relevant, and actionable based on their actual res
         else:
             return "generate_followup"
 
+    def _complete_survey(self, session_id: str, final_state: Dict[str, Any]) -> None:
+        """
+        Complete survey session with final Q&A and complete state
+
+        Called when survey reaches completion criteria.
+        Populates questions_and_answers and session_context JSONB in survey_sessions table.
+
+        Args:
+            session_id: Session UUID
+            final_state: Final survey state with all answers
+        """
+        # Build questions_and_answers JSONB from state
+        questions_and_answers = []
+        for ans in final_state["answers"]:
+            questions_and_answers.append({
+                "question_number": ans["question_index"] + 1,
+                "question_text": ans["question"],
+                "selected_option": ans["answer"],
+                "timestamp": ans["timestamp"]
+            })
+
+        # Update survey_sessions with final Q&A
+        db.complete_survey_session(
+            session_id=session_id,
+            questions_and_answers=questions_and_answers
+        )
+
+        # Store complete survey state in session_context
+        db.update_session_context(
+            session_id=session_id,
+            session_context=final_state  # Complete survey agent state
+        )
+
+        # LOG EVENT: survey_completed (ASYNC)
+        self._log_event_async(
+            session_id=session_id,
+            event_type="survey_completed",
+            event_detail={
+                "total_questions": len(final_state.get("all_questions", [])),
+                "answered_count": final_state.get("answered_questions_count", 0),
+                "skipped_count": len(final_state.get("skipped_questions", [])),
+                "completion_time": datetime.utcnow().isoformat()
+            }
+        )
+
     def start_survey(self, user_id: str, item_id: str, form_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Start new survey session, return first question"""
+        """
+        Start new survey session (SMP → SVP transition)
+
+        Creates session with frozen agent contexts at start.
+        Populates product_context and customer_context JSONB immediately.
+
+        Args:
+            user_id: User UUID
+            item_id: Product item_id
+            form_data: Frontend form data (for backwards compatibility)
+
+        Returns:
+            dict: First question and session metadata
+        """
+        # STEP 1: Fetch agent contexts FIRST (frozen after start)
+        product_context = product_context_agent.generate_context(item_id=item_id)
+        customer_context = customer_context_agent.generate_context(user_id=user_id, item_id=item_id)
+
+        # STEP 2: Get transaction (MUST exist from data engineering step)
+        existing_txn = db.get_user_transaction_for_product(user_id, item_id)
+        if not existing_txn:
+            raise ValueError(
+                f"Transaction not found for user {user_id} and product {item_id}. "
+                f"The transaction MUST be created during the data engineering step (mock data generation). "
+                f"Please ensure the current transaction was created properly."
+            )
+
+        transaction_id = existing_txn["transaction_id"]
+
+        # STEP 3: Create session with contexts (NEW SCHEMA)
         session_id = db.create_survey_session(
             user_id=user_id,
             item_id=item_id,
-            metadata={"form_data": form_data},
+            transaction_id=transaction_id,
+            product_context=product_context.dict(),  # JSONB - frozen
+            customer_context=customer_context.dict()   # JSONB - frozen
         )
 
+        # STEP 4: Generate initial questions (existing LangGraph logic)
         initial_state: SurveyState = {
             "session_id": session_id,
             "user_id": user_id,
             "item_id": item_id,
-            "product_context": None,
-            "customer_context": None,
+            "product_context": product_context.dict(),
+            "customer_context": customer_context.dict(),
             "all_questions": [],
             "current_question_index": 0,
             "answers": [],
@@ -444,19 +535,27 @@ Make questions more specific, relevant, and actionable based on their actual res
             "consecutive_skips": 0,
             "asked_question_texts": [],
             "conversation_history": [],
-            "next_action": "fetch_contexts",
+            "next_action": "generate_initial_questions",  # Skip fetch_contexts (already done)
         }
 
         result = self.graph.invoke(initial_state)
 
-        db.update_survey_session(
-            session_id=session_id,
-            conversation_history=result.get("conversation_history", []),
-            state="active",
-            metadata={"form_data": form_data, "current_state": result},
-        )
+        # STEP 5: Store state in-memory cache (lazy DB update - only at start and end)
+        self._session_state_cache[session_id] = result
 
+        # STEP 6: Log first question_generated event (ASYNC - fast update)
         current_q = result["all_questions"][result["current_question_index"]]
+        self._log_event_async(
+            session_id=session_id,
+            event_type="question_generated",
+            event_detail={
+                "question_number": result["current_question_index"] + 1,
+                "question_text": current_q["question_text"],
+                "options": current_q["options"],
+                "allow_multiple": current_q.get("allow_multiple", False),
+                "reasoning": current_q.get("reasoning", "")
+            }
+        )
 
         return {
             "session_id": session_id,
@@ -467,13 +566,16 @@ Make questions more specific, relevant, and actionable based on their actual res
         }
 
     def submit_answer(self, session_id: str, answer: str) -> Dict[str, Any]:
-        """Submit answer, get next question"""
-        session = db.get_survey_session(session_id)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
+        """
+        Submit answer, get next question
 
-        session_context = session.get("session_context", {})
-        current_state = session_context.get("current_state", {})
+        Uses in-memory state cache (lazy DB update - only at completion).
+        Logs answer_submitted event to survey_details (async fast update).
+        """
+        # Get state from in-memory cache
+        current_state = self._session_state_cache.get(session_id)
+        if not current_state:
+            raise ValueError(f"Session state not found: {session_id}")
 
         current_index = current_state.get("current_question_index", 0)
         all_questions = current_state.get("all_questions", [])
@@ -485,18 +587,31 @@ Make questions more specific, relevant, and actionable based on their actual res
                 f"Please wait for the previous answer to be processed."
             )
 
+        # Process answer
         state_update = self._process_answer(current_state, answer)
         updated_state = {**current_state, **state_update}
+
+        # LOG EVENT: answer_submitted (ASYNC - fast update to survey_details)
+        current_q = all_questions[current_index]
+        self._log_event_async(
+            session_id=session_id,
+            event_type="answer_submitted",
+            event_detail={
+                "question_number": current_index + 1,
+                "question_text": current_q["question_text"],
+                "selected_option": answer,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
 
         next_route = self._route_after_answer(updated_state)
 
         if next_route == "complete_survey":
-            db.update_survey_session(
-                session_id=session_id,
-                conversation_history=updated_state.get("conversation_history", []),
-                state="survey_completed",
-                metadata={"current_state": updated_state},
-            )
+            # COMPLETE SURVEY - Lazy update to survey_sessions
+            self._complete_survey(session_id, updated_state)
+
+            # Clear from cache
+            del self._session_state_cache[session_id]
 
             return {
                 "session_id": session_id,
@@ -504,18 +619,29 @@ Make questions more specific, relevant, and actionable based on their actual res
                 "answered_questions_count": updated_state.get("answered_questions_count", 0),
             }
         elif next_route == "generate_followup":
+            # Generate follow-up questions
             followup_update = self._generate_followup_questions(updated_state)
             updated_state = {**updated_state, **followup_update}
 
             present_update = self._present_question(updated_state)
             updated_state = {**updated_state, **present_update}
 
-        db.update_survey_session(
-            session_id=session_id,
-            conversation_history=updated_state.get("conversation_history", []),
-            state="active",
-            metadata={"current_state": updated_state},
-        )
+            # LOG EVENT: question_generated (ASYNC - fast update to survey_details)
+            next_q = updated_state["all_questions"][updated_state["current_question_index"]]
+            self._log_event_async(
+                session_id=session_id,
+                event_type="question_generated",
+                event_detail={
+                    "question_number": updated_state["current_question_index"] + 1,
+                    "question_text": next_q["question_text"],
+                    "options": next_q["options"],
+                    "allow_multiple": next_q.get("allow_multiple", False),
+                    "reasoning": next_q.get("reasoning", "")
+                }
+            )
+
+        # Update in-memory cache (NO DB write - lazy update only at completion)
+        self._session_state_cache[session_id] = updated_state
 
         next_index = updated_state["current_question_index"]
         all_questions = updated_state["all_questions"]
@@ -537,13 +663,11 @@ Make questions more specific, relevant, and actionable based on their actual res
         }
 
     def skip_question(self, session_id: str) -> Dict[str, Any]:
-        """Skip question with limits"""
-        session = db.get_survey_session(session_id)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
-
-        session_context = session.get("session_context", {})
-        current_state = session_context.get("current_state", {})
+        """Skip question with limits - uses in-memory cache"""
+        # Get state from in-memory cache
+        current_state = self._session_state_cache.get(session_id)
+        if not current_state:
+            raise ValueError(f"Session state not found in cache: {session_id}")
 
         consecutive_skips = current_state.get("consecutive_skips", 0)
         MAX_CONSECUTIVE_SKIPS = 3
@@ -569,8 +693,23 @@ Make questions more specific, relevant, and actionable based on their actual res
                 f"You've answered {answered_count} so far. Please answer this question."
             )
 
+        # Get current question before processing skip
+        current_q = current_state["all_questions"][current_state["current_question_index"]]
+
         state_update = self._process_answer(current_state, answer=None, is_skipped=True)
         updated_state = {**current_state, **state_update}
+
+        # LOG EVENT: answer_skipped (ASYNC)
+        self._log_event_async(
+            session_id=session_id,
+            event_type="answer_skipped",
+            event_detail={
+                "question_number": current_state["current_question_index"] + 1,
+                "question_text": current_q["question_text"],
+                "skip_count": len(updated_state.get("skipped_questions", [])),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
 
         next_route = self._route_after_answer(updated_state)
 
@@ -580,12 +719,9 @@ Make questions more specific, relevant, and actionable based on their actual res
                 next_route = "generate_followup"
 
         if next_route == "complete_survey":
-            db.update_survey_session(
-                session_id=session_id,
-                conversation_history=updated_state.get("conversation_history", []),
-                state="survey_completed",
-                metadata={"current_state": updated_state},
-            )
+            # COMPLETE SURVEY - Lazy update
+            self._complete_survey(session_id, updated_state)
+            del self._session_state_cache[session_id]
 
             return {
                 "session_id": session_id,
@@ -599,12 +735,22 @@ Make questions more specific, relevant, and actionable based on their actual res
             present_update = self._present_question(updated_state)
             updated_state = {**updated_state, **present_update}
 
-        db.update_survey_session(
-            session_id=session_id,
-            conversation_history=updated_state.get("conversation_history", []),
-            state="active",
-            metadata={"current_state": updated_state},
-        )
+            # LOG EVENT: question_generated (ASYNC)
+            next_q = updated_state["all_questions"][updated_state["current_question_index"]]
+            self._log_event_async(
+                session_id=session_id,
+                event_type="question_generated",
+                event_detail={
+                    "question_number": updated_state["current_question_index"] + 1,
+                    "question_text": next_q["question_text"],
+                    "options": next_q["options"],
+                    "allow_multiple": next_q.get("allow_multiple", False),
+                    "reasoning": next_q.get("reasoning", "")
+                }
+            )
+
+        # Update in-memory cache (NO DB write during survey)
+        self._session_state_cache[session_id] = updated_state
 
         next_index = updated_state["current_question_index"]
         all_questions = updated_state["all_questions"]
@@ -625,13 +771,11 @@ Make questions more specific, relevant, and actionable based on their actual res
         }
 
     def get_question_for_edit(self, session_id: str, question_number: int) -> Dict[str, Any]:
-        """Get the original question for editing (works for both answered and skipped questions)"""
-        session = db.get_survey_session(session_id)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
-
-        session_context = session.get("session_context", {})
-        current_state = session_context.get("current_state", {})
+        """Get the original question for editing - uses in-memory cache"""
+        # Get state from in-memory cache
+        current_state = self._session_state_cache.get(session_id)
+        if not current_state:
+            raise ValueError(f"Session state not found in cache: {session_id}")
 
         question_index = question_number - 1
         all_questions = current_state.get("all_questions", [])
@@ -649,13 +793,11 @@ Make questions more specific, relevant, and actionable based on their actual res
         }
 
     def edit_answer(self, session_id: str, question_number: int, new_answer: str) -> Dict[str, Any]:
-        """Edit previous answer, branch from that point"""
-        session = db.get_survey_session(session_id)
-        if not session:
-            raise ValueError(f"Session not found: {session_id}")
-
-        session_context = session.get("session_context", {})
-        current_state = session_context.get("current_state", {})
+        """Edit previous answer, branch from that point - uses in-memory cache"""
+        # Get state from in-memory cache
+        current_state = self._session_state_cache.get(session_id)
+        if not current_state:
+            raise ValueError(f"Session state not found in cache: {session_id}")
 
         question_index = question_number - 1
         all_questions = current_state.get("all_questions", [])
@@ -663,6 +805,13 @@ Make questions more specific, relevant, and actionable based on their actual res
         # Allow editing both answered and skipped questions
         if question_index < 0 or question_index >= len(all_questions):
             raise ValueError(f"Invalid question number: {question_number}")
+
+        # Get old answer for event logging
+        old_answer = None
+        for ans in current_state["answers"]:
+            if ans["question_index"] == question_index:
+                old_answer = ans["answer"]
+                break
 
         branched_answers = current_state["answers"][:question_index]
 
@@ -674,6 +823,19 @@ Make questions more specific, relevant, and actionable based on their actual res
             "timestamp": datetime.utcnow().isoformat(),
         }
         branched_answers.append(new_answer_record)
+
+        # LOG EVENT: answer_updated (ASYNC)
+        self._log_event_async(
+            session_id=session_id,
+            event_type="answer_updated",
+            event_detail={
+                "question_number": question_number,
+                "question_text": current_q["question_text"],
+                "old_option": old_answer,
+                "new_option": new_answer,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
 
         branched_conversation = []
         for ans in branched_answers:
@@ -701,12 +863,8 @@ Make questions more specific, relevant, and actionable based on their actual res
             "generated_reviews": None,
         }
 
-        db.update_survey_session(
-            session_id=session_id,
-            conversation_history=branched_conversation,
-            state="active",
-            metadata={"current_state": branched_state},
-        )
+        # Update in-memory cache (NO DB write during survey)
+        self._session_state_cache[session_id] = branched_state
 
         if branched_state["current_question_index"] >= len(branched_state["all_questions"]):
             return {
@@ -726,6 +884,40 @@ Make questions more specific, relevant, and actionable based on their actual res
             "total_questions": len(branched_state["all_questions"]),
             "answered_questions_count": branched_state.get("answered_questions_count", 0),
         }
+
+    def get_survey_state(self, session_id: str) -> Dict[str, Any]:
+        """
+        Get current survey state from in-memory cache or database
+
+        Used for review generation to access survey answers.
+        If survey is completed, state will be in database (session_context).
+        If survey is in progress, state will be in in-memory cache.
+
+        Args:
+            session_id: Session UUID
+
+        Returns:
+            Complete survey state dict with answers, questions, etc.
+
+        Raises:
+            ValueError: If session not found in cache or database
+        """
+        # Try in-memory cache first (survey in progress)
+        current_state = self._session_state_cache.get(session_id)
+        if current_state:
+            return current_state
+
+        # Survey completed - retrieve from database session_context
+        from database.supabase_client import db
+        session = db.get_survey_session(session_id)
+        if not session:
+            raise ValueError(f"Session not found: {session_id}")
+
+        session_context = session.get("session_context")
+        if not session_context:
+            raise ValueError(f"Session state not found (survey may not be completed): {session_id}")
+
+        return session_context
 
 
 survey_agent = SurveyAgent()

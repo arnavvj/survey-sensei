@@ -1,53 +1,61 @@
-# Survey Sensei - Frontend
+# Survey Sensei Frontend
 
-Progressive form intake, multi-pane retractable UI, and mock data generation for AI-powered survey simulation.
+Next.js 14 application with progressive form, survey interface, and review selection UI.
 
 ## Overview
 
-**Phase 1 Complete** implementation featuring:
-- 7-field progressive form with conditional logic
-- Real-time Amazon product scraping via RapidAPI
-- Multi-pane retractable UI (4 distinct states)
-- MOCK_DATA_AGENT for synthetic data generation
-- Complete Supabase database integration
+The frontend provides a complete user experience from product selection through survey completion to review submission. Built with Next.js 14 App Router, TypeScript, and Tailwind CSS.
 
-## Tech Stack
+## Features
 
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript (strict mode)
-- **Styling**: Tailwind CSS with custom design system
-- **Database**: Supabase JS Client
-- **APIs**: RapidAPI (Amazon data), native fetch
-- **Validation**: Zod schemas
+- **Progressive Form**: 5-step intake with conditional logic
+- **Amazon Product Scraping**: RapidAPI integration with fallback
+- **Diverse User Personas**: 48 diverse names with round-robin gender alternation
+- **Interactive Survey UI**: Real-time question-answer flow
+- **Review Selection**: Choose from 3 AI-generated review options
+- **Responsive Design**: Works on all screen sizes
 
-## Quick Start
+## Quick Setup
 
-1. **Install dependencies**
-   ```bash
-   cd frontend
-   npm install
-   ```
+### 1. Install Dependencies
 
-2. **Configure environment**
-   ```bash
-   cp .env.local.example .env.local
-   ```
+```bash
+cd frontend
+npm install
+```
 
-   Add your credentials to `.env.local`:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-   RAPIDAPI_KEY=your-rapidapi-key  # Optional but recommended
-   ```
+### 2. Configure Environment
 
-3. **Run development server**
-   ```bash
-   npm run dev
-   ```
+```bash
+cp .env.local.example .env.local
+```
 
-4. **Open application**
-   - Navigate to [http://localhost:3000](http://localhost:3000)
-   - Test with: `https://www.amazon.com/dp/B0DCJ5NMV2`
+Edit `.env.local`:
+
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-secret-key
+
+# OpenAI (for persona generation)
+OPENAI_API_KEY=sk-proj-your-openai-key
+
+# RapidAPI (optional but recommended)
+RAPIDAPI_KEY=your-rapidapi-key
+
+# Application
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+```
+
+### 3. Start Development Server
+
+```bash
+npm run dev
+```
+
+Application starts at `http://localhost:3000`
 
 ## Project Structure
 
@@ -55,182 +63,150 @@ Progressive form intake, multi-pane retractable UI, and mock data generation for
 frontend/
 ├── app/
 │   ├── api/
-│   │   ├── scrape/route.ts         # Amazon product scraper with RapidAPI
-│   │   └── mock-data/route.ts      # MOCK_DATA_AGENT (data generation)
-│   ├── globals.css                 # Global styles + animations
-│   ├── layout.tsx                  # Root layout with metadata
-│   └── page.tsx                    # Main form orchestrator (multi-pane UI)
+│   │   ├── scrape/route.ts           # Amazon product scraper
+│   │   ├── mock-data/route.ts        # Mock data generation
+│   │   └── generate-persona/route.ts # User persona generation
+│   ├── globals.css                   # Global styles
+│   ├── layout.tsx                    # Root layout
+│   └── page.tsx                      # Main application
 ├── components/
-│   ├── form/
-│   │   ├── ProductUrlField.tsx              # Field 1: Amazon URL input
-│   │   ├── ReviewStatusField.tsx            # Field 2: Has reviews? (Yes/No)
-│   │   ├── SentimentSpreadField.tsx         # Field 3: Good/Neutral/Bad sliders
-│   │   ├── SimilarProductsField.tsx         # Field 4: Similar products reviewed?
-│   │   ├── UserPersonaField.tsx             # Field 5: Auto-generated user
-│   │   ├── UserPurchaseHistoryField.tsx     # Field 6: Purchase history?
-│   │   └── UserExactProductField.tsx        # Field 7: Bought this product?
-│   └── SubmissionSummary.tsx       # Post-submit summary view
+│   └── form/
+│       ├── ProductUrlField.tsx       # Field 1: Amazon URL
+│       ├── ReviewStatusField.tsx     # Field 2: Has reviews?
+│       ├── SentimentSpreadField.tsx  # Field 3: Sentiment sliders
+│       ├── SimilarProductsField.tsx  # Field 4: Similar products?
+│       ├── UserPersonaField.tsx      # Field 5: User profile
+│       └── SubmissionSummary.tsx     # Post-submit summary
 ├── lib/
-│   ├── supabase.ts                 # Supabase client
-│   ├── types.ts                    # TypeScript definitions + validation
-│   └── utils.ts                    # Utilities (mock names, helpers)
-└── [config files]
+│   ├── supabase.ts                   # Supabase client
+│   ├── types.ts                      # TypeScript types
+│   └── utils.ts                      # Utility functions
+└── README.md                         # This file
 ```
 
-## Multi-Pane UI System
+## Application Flow
 
-### 4 UI States
+### 1. Form Submission (5 Steps)
 
-**State 1: Form Filling** (before submit)
-- Survey Sensei pane: 100% width
-- User fills out 7-field progressive form
+**Step 1: Product URL**
+- Enter Amazon product URL
+- Click "Fetch Product Info"
+- System scrapes product via RapidAPI
+- Displays: title, price, images, rating
 
-**State 2: Submission Summary** (after submit)
-- Survey Sensei pane: 10% width (minimized, clickable to expand)
-- Simulation Summary: 90% width
-- Click Survey Sensei pane → Transition to State 3
+**Step 2: Review Status**
+- Select: "Yes, it has reviews" or "No reviews"
+- Determines next field (sentiment spread vs similar products)
 
-**State 3: Survey Pane Expanded**
-- Survey Sensei pane: 90% width (expanded view)
-- Simulation Summary: 10% width (minimized with vertical "Simulation Summary" text)
-- Click Simulation Summary text → Back to State 2
-- Click "Next: Start Survey" button → State 4
+**Step 3a: Sentiment Spread** (if has reviews)
+- Adjust sliders: Good (%), Neutral (%), Bad (%)
+- Must total 100%
+- Determines mock review distribution
 
-**State 4: Survey UI** (3-pane layout)
-- Survey Sensei: 10% width
-- Summary Stats: 10% width (compact metrics)
-- Survey UI: 80% width
-  - Top 65%: Current question with multiple choice options
-  - Bottom 35%: Stacked Q&A history
-  - "Generate Product Review" button at bottom
+**Step 3b: Similar Products** (if no reviews)
+- Select: "Yes" or "No"
+- Determines if similar products generated
 
-### UI Interactions
+**Step 4: User Persona**
+- Auto-generated with diverse demographics
+- Click "Regenerate" for new persona (alternates gender)
+- Contains: Name, Email, Age, Gender, Location
 
-**Click Handlers**:
-- Survey Sensei pane (State 2): Click to expand to 90%
-- Simulation Summary (State 3): Click vertical text to expand back to 90%
-- Next button: Proceed to Survey UI (State 4)
+**Step 5: Purchase History**
+- Has purchase history? "Yes" or "No"
+- Bought exact product? "Yes" or "No"
+- Submit → Generates mock data
 
-**Animations**:
-- `transition-all duration-500` for smooth pane transitions
-- Hover effects: `cursor-pointer hover:shadow-lg` when clickable
-- Loading spinners during API calls
+### 2. Mock Data Generation
 
-## Form Flow (7 Fields)
+**What Gets Created:**
+- Main product + similar products (if applicable)
+- Main user + 20-100 mock users
+- Purchase transactions with realistic dates
+- Product reviews with sentiment distribution
+- All data inserted into Supabase
 
-```
-Product URL → Review Status → Sentiment/Similar Products →
-User Persona → Purchase History → Exact Product → Submit
-```
+**Data Summary Displayed:**
+- Product count
+- User count
+- Transaction count
+- Review count
+- Scenario description
 
-### Field Details
+### 3. Survey Execution
 
-**Field 1: Product URL**
-- Text input with URL validation
-- "Fetch" button with loading spinner
-- Intelligent ASIN extraction (supports all Amazon URL formats)
-- Product preview card on success
-- Displays: title, price, brand, rating, images, description
-- RapidAPI integration with fallback to mock data
+**Start Survey:**
+- Click "Start Survey" button
+- Backend invokes ProductContext and CustomerContext agents
+- First question generated and displayed
 
-**Field 2: Review Status**
-- Yes/No button selection
-- Conditional logic:
-  - **Yes**: Fetches reviews from RapidAPI → Field 3 (Sentiment Spread)
-  - **No**: Skip review fetching → Field 4 (Similar Products)
-- API optimization: Reviews only fetched when "Yes" selected
+**Answer Questions:**
+- Read question
+- Select from multiple choice options
+- Click "Submit Answer"
+- Next question appears (3-7 questions total)
 
-**Field 3: Sentiment Spread** (if Field 2 = Yes)
-- 3 range sliders: Good (0-100%), Neutral (0-100%), Bad (0-100%)
-- Real-time total calculation
-- Validation: Must equal 100%
-- Color-coded: green, yellow, red
-- Generates 20-50 reviews with specified distribution
+**Survey Completion:**
+- After final question, survey marked complete
+- "Generate Reviews" button appears
 
-**Field 4: Similar Products** (if Field 2 = No)
-- Yes/No button selection
-- **Yes**: Generates 5-10 similar products + 50-100 users
-- **No**: Flags product cold start
+### 4. Review Generation
 
-**Field 5: User Persona**
-- Auto-generated on mount from preset list
-- Includes: Name, Email, Age, Gender, Location (city, state, ZIP)
-- "Regenerate" button for new persona
-- Gradient card display
+**Generate Options:**
+- Click "Generate Reviews"
+- ReviewGenAgent creates 3 review alternatives
+- Each review includes: title, text, star rating, tone
 
-**Field 6: User Purchase History**
-- Yes/No button selection
-- **Yes**: Generates 8-15 products + 2 transactions + reviews
-- **No**: Flags user cold start
+**Review Display:**
+- Overall sentiment indicator (Good/Okay/Bad)
+- 3 review cards with different tones:
+  - Enthusiastic (usually 4-5 stars)
+  - Balanced (usually 3-4 stars)
+  - Critical (usually 2-3 stars)
 
-**Field 7: Exact Product Purchase**
-- Yes/No button selection
-- **Yes**: Adds transaction for this exact product
-- **No**: No additional transaction
-
-**Submit Button**
-- Appears after Field 7 completion
-- Loading spinner during submission
-- Triggers `POST /api/mock-data`
-- Transitions to summary view (State 2)
+**Select and Submit:**
+- Click "Select This Review" on preferred option
+- Review saved to database with source='user_survey'
+- Success message displayed
 
 ## API Endpoints
 
 ### POST /api/scrape
 
-Scrapes Amazon product data using RapidAPI with fallback to direct scraping.
+Scrapes Amazon product data.
 
-**Request**:
+**Request:**
 ```json
 {
-  "url": "https://www.amazon.com/dp/B0DCJ5NMV2",
-  "fetchReviews": false  // Optional, defaults to false
+  "url": "https://www.amazon.com/dp/B0DCJ5NMV2"
 }
 ```
 
-**Response**:
+**Response:**
 ```json
 {
   "success": true,
   "data": {
     "url": "https://...",
-    "title": "Sony WH-1000XM4 Wireless Headphones",
+    "title": "Product Name",
     "price": 279.99,
     "images": ["url1", "url2"],
-    "description": "Industry-leading noise canceling...",
-    "brand": "Sony",
+    "description": "...",
+    "brand": "Brand Name",
     "rating": 4.7,
-    "reviewCount": 47891,
-    "reviews": [],  // Only populated if fetchReviews=true
+    "reviewCount": 12847,
     "platform": "amazon"
   }
 }
 ```
 
-**Features**:
-- **ASIN Extraction**: Supports all Amazon URL formats (`/dp/`, `/gp/product/`, `amzn.to/`, etc.)
-- **RapidAPI Integration**: Tries RapidAPI first for reliable data
-- **Fallback**: Direct scraping if RapidAPI not configured
-- **Conditional Reviews**: Reviews only fetched when `fetchReviews=true`
-- **Error Handling**: Returns mock data if both methods fail
-
-**Extraction Patterns**:
-```typescript
-// ASIN extraction supports:
-/\/dp\/([A-Z0-9]{10})/i              // Standard /dp/ format
-/\/gp\/product\/([A-Z0-9]{10})/i     // Alternative /gp/product/
-/\/([A-Z0-9]{10})\/ref=/i            // ASIN before /ref=
-/[?&]asin=([A-Z0-9]{10})/i           // Query parameter
-/amzn\.to\/([A-Z0-9]{10})/i          // Shortened links
-```
-
 ### POST /api/mock-data
 
-Generates synthetic data and inserts into Supabase.
+Generates mock data for testing.
 
-**Request**: Complete `FormData` object (all 7 fields)
+**Request:** Complete form data object
 
-**Response**:
+**Response:**
 ```json
 {
   "success": true,
@@ -239,57 +215,229 @@ Generates synthetic data and inserts into Supabase.
     "users": 53,
     "transactions": 78,
     "reviews": 45,
-    "scenario": "Product has 45 reviews with 60% positive, 25% neutral, 15% negative sentiment.",
-    "coldStart": {
-      "product": false,
-      "user": false
-    }
+    "scenario": "Product has 45 reviews with 60% positive..."
   }
 }
 ```
 
-**MOCK_DATA_AGENT Logic**:
+### POST /api/generate-persona
 
-1. **Product Generation**
-   - Insert main scraped product
-   - Generate similar products (Field 4 = Yes): 5-10 variants
-   - Generate user-specific products (Field 6 = Yes): 8-15 products
-   - Variations: Pro, Plus, Elite, Premium, Lite
-   - Price variations: ±30% of base price
+Generates diverse user persona.
 
-2. **User Generation**
-   - Main user persona from Field 5
-   - Review authors (Field 3): 20-50 users
-   - Similar product purchasers (Field 4 = Yes): 50-100 users
-   - Demographics: age (18-75), gender, location, credit_score (300-850), avg_monthly_expenses
+**Request:**
+```json
+{
+  "lastGender": "Female"
+}
+```
 
-3. **Transaction Generation**
-   - 1-3 transactions per user
-   - Random products from available pool
-   - Statuses: delivered (70%), returned (10%), in_transit (20%)
-   - Realistic dates: 1-365 days ago
-   - Auto-computed discounts (80-95% of original price)
-   - Populated fields: `expected_delivery_date`, `return_date` (nullable)
+**Response:**
+```json
+{
+  "success": true,
+  "persona": {
+    "name": "Hiroshi Tanaka",
+    "email": "hiroshi.tanaka.8234@example.com",
+    "age": 42,
+    "city": "Seattle",
+    "state": "Washington",
+    "zip": "98101",
+    "gender": "Male",
+    "location": "Seattle, Washington"
+  }
+}
+```
 
-4. **Review Generation**
-   - Based on sentiment spread from Field 3
-   - 50% chance per delivered transaction
-   - Natural language review text:
-     - **Good (4-5 stars)**: "Absolutely love this...", "Great quality..."
-     - **Neutral (3 stars)**: "It's okay...", "Average product..."
-     - **Bad (1-2 stars)**: "Disappointed...", "Poor quality..."
-   - Timestamps: 0-60 days ago
-   - `manual_or_agent_generated`: "agent_generated"
+**Features:**
+- 48 diverse names (24 male, 24 female)
+- Round-robin gender alternation on "Regenerate"
+- Names from USA, India, China, Middle East, Japan, Europe, Latin America
 
-5. **Embedding Generation**
-   - Deterministic pseudo-random embeddings (1536-dimensional)
-   - Based on content hash for consistency
-   - **Production**: Replace with OpenAI `text-embedding-ada-002`
+## Key Features
 
-6. **Database Insertion**
-   - Batch operations for efficiency
-   - Tables: products, users, transactions, reviews
-   - Error handling with rollback
+### Diverse User Personas
+
+**48 Curated Names:**
+- Equal male/female distribution (24 each)
+- Multiple ethnicities and cultural backgrounds
+- Realistic email generation
+- US cities and ZIP codes
+- Age range: 18-75
+
+**Round-Robin Alternation:**
+- First generation: Random gender
+- Subsequent regenerations: Alternates gender
+- Example: Female → Male → Female → Male
+
+**Implementation:**
+```typescript
+// Client sends last gender to API
+fetch('/api/generate-persona', {
+  method: 'POST',
+  body: JSON.stringify({ lastGender })
+})
+
+// API alternates gender
+gender = lastGender === 'Male' ? 'Female' : 'Male'
+```
+
+### Amazon Product Scraping
+
+**ASIN Extraction:**
+Supports all Amazon URL formats:
+```
+/dp/ASIN
+/gp/product/ASIN
+/ASIN/ref=...
+?asin=ASIN
+amzn.to/ASIN
+```
+
+**RapidAPI Integration:**
+- Primary: RapidAPI Real-Time Amazon Data API
+- Fallback: Direct scraping (may be blocked)
+- Mock: Use URL ending with "mock" for instant testing
+
+### Form Validation
+
+**URL Validation:**
+- Must be valid URL
+- Amazon domain required
+- ASIN extracted and verified
+
+**Sentiment Validation:**
+- Good + Neutral + Bad must equal 100%
+- Real-time total calculation
+- Visual feedback (green/yellow/red)
+
+**Email Validation:**
+- Valid email format
+- Auto-generated from name
+
+**ZIP Validation:**
+- 5-digit format
+- Auto-generated for personas
+
+## Development Commands
+
+```bash
+# Development server
+npm run dev
+
+# Production build
+npm run build
+
+# Start production server
+npm start
+
+# Lint code
+npm run lint
+
+# Type checking
+npm run type-check
+
+# Clean build artifacts
+rm -rf .next node_modules
+npm install
+```
+
+## Testing
+
+### Test Amazon URLs
+
+```
+https://www.amazon.com/dp/B0DCJ5NMV2
+https://www.amazon.com/dp/B09XS7JWHH
+```
+
+### Test with Mock Data
+
+```
+http://localhost:3000?url=mock
+```
+
+Or enter "mock" in the product URL field.
+
+### Verify Database
+
+After form submission:
+
+```sql
+-- Check inserted data
+SELECT COUNT(*) FROM products;
+SELECT COUNT(*) FROM users;
+SELECT COUNT(*) FROM transactions;
+SELECT COUNT(*) FROM reviews;
+
+-- Check main user
+SELECT * FROM users WHERE is_main_user = true ORDER BY created_at DESC LIMIT 1;
+
+-- Check main product
+SELECT * FROM products WHERE is_mock = false ORDER BY created_at DESC LIMIT 1;
+```
+
+## Troubleshooting
+
+### Build Errors
+
+```bash
+rm -rf node_modules .next
+npm install
+npm run dev
+```
+
+### Type Errors
+
+```bash
+npm run type-check
+```
+
+Fix errors shown, then rebuild.
+
+### RapidAPI Not Working
+
+1. Verify `RAPIDAPI_KEY` in `.env.local`
+2. Check API key at [RapidAPI Dashboard](https://rapidapi.com/developer/apps)
+3. Ensure free tier limits not exceeded (100 requests/month)
+4. Restart dev server: `npm run dev`
+
+### Product Scraping Fails
+
+1. Try mock URL: enter "mock" in product field
+2. Check Amazon URL format (must contain ASIN)
+3. Verify RapidAPI key configured
+4. Check browser console for error details (F12)
+
+### Port 3000 in Use
+
+**Windows:**
+```bash
+netstat -ano | findstr :3000
+taskkill /PID <PID> /F
+```
+
+**Mac/Linux:**
+```bash
+lsof -ti:3000 | xargs kill -9
+```
+
+**Or use different port:**
+```bash
+npm run dev -- -p 3001
+```
+
+### Environment Variables Not Loading
+
+1. Ensure `.env.local` exists in frontend directory
+2. Restart dev server completely
+3. Check file name (must be exactly `.env.local`)
+4. Verify no spaces in variable names
+
+### Persona Generation Stuck
+
+1. Check OpenAI API key in `.env.local`
+2. Verify API key valid at [OpenAI Platform](https://platform.openai.com/api-keys)
+3. Fallback will activate if API fails (uses local name list)
 
 ## Design System
 
@@ -297,33 +445,36 @@ Generates synthetic data and inserts into Supabase.
 
 ```css
 /* Primary (Blue) */
---primary-50: #f0f9ff
---primary-600: #0284c7  /* Main brand color */
+--primary-600: #0284c7
 --primary-900: #0c4a6e
 
-/* Status Colors */
---success: #10b981  /* Green */
---warning: #f59e0b  /* Yellow */
---error: #ef4444    /* Red */
+/* Status */
+--success: #10b981 (Green)
+--warning: #f59e0b (Yellow)
+--error: #ef4444 (Red)
+
+/* Sentiment */
+--good: #10b981 (Green)
+--neutral: #f59e0b (Yellow)
+--bad: #ef4444 (Red)
 ```
 
 ### Components
 
-**Buttons**:
+**Buttons:**
 ```css
-.btn              /* Base: px-4 py-2 rounded-lg transition */
-.btn-primary      /* Blue bg, white text, hover:shadow-lg */
-.btn-secondary    /* Gray bg, gray text */
+.btn-primary     /* Blue background, white text */
+.btn-secondary   /* Gray background, gray text */
 ```
 
-**Inputs**:
+**Inputs:**
 ```css
-.input            /* bg-white text-gray-900 placeholder:text-gray-400 */
+.input           /* White background, gray border */
 ```
 
-**Cards**:
+**Cards:**
 ```css
-.card             /* bg-white rounded-xl shadow-md p-6 */
+.card            /* White background, shadow, rounded */
 ```
 
 ### Animations
@@ -335,266 +486,38 @@ Generates synthetic data and inserts into Supabase.
   to { opacity: 1; }
 }
 
-/* Slide in from bottom */
+/* Slide in */
 @keyframes slide-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-/* Pane transitions */
-transition: all 0.5s ease-in-out;
 ```
 
-## Type Safety
-
-### Core Types
-
-```typescript
-type FormStep = 1 | 2 | 3 | 4 | 5 | 6 | 7
-
-interface ProductData {
-  url: string
-  title: string
-  price?: number
-  images: string[]
-  description: string
-  brand?: string
-  rating?: number
-  reviewCount?: number
-  reviews?: ScrapedReview[]
-  platform: string
-}
-
-interface FormData {
-  productUrl: string
-  productData?: ProductData
-  hasReviews?: 'yes' | 'no'
-  sentimentSpread?: { good: number; neutral: number; bad: number }
-  hasSimilarProductsReviewed?: 'yes' | 'no'
-  userPersona?: UserPersona
-  userHasPurchasedSimilar?: 'yes' | 'no'
-  userHasPurchasedExact?: 'yes' | 'no'
-}
-
-interface MockDataSummary {
-  products: number
-  users: number
-  transactions: number
-  reviews: number
-  scenario: string
-  coldStart: {
-    product: boolean
-    user: boolean
-  }
-}
-
-interface UserPersona {
-  name: string
-  email: string
-  age: number
-  gender: 'Male' | 'Female' | 'Other'
-  location: string
-  city: string
-  state: string
-  zipCode: string
-}
-```
-
-### Validation Schemas (Zod)
-
-```typescript
-const productUrlSchema = z.string().url()
-
-const sentimentSpreadSchema = z.object({
-  good: z.number().min(0).max(100),
-  neutral: z.number().min(0).max(100),
-  bad: z.number().min(0).max(100),
-}).refine(data => data.good + data.neutral + data.bad === 100)
-
-const userPersonaSchema = z.object({
-  name: z.string(),
-  email: z.string().email(),
-  age: z.number().min(18).max(120),
-  zipCode: z.string().regex(/^\d{5}$/),
-})
-```
-
-## Development Commands
-
-```bash
-npm run dev         # Start dev server (http://localhost:3000)
-npm run build       # Production build
-npm start           # Production server
-npm run lint        # ESLint
-npm run type-check  # TypeScript validation
-```
-
-## Testing
-
-### Test Amazon URLs
-
-**Verified Working**:
-```
-https://www.amazon.com/dp/B0DCJ5NMV2
-https://www.amazon.com/dp/B09XS7JWHH
-https://www.amazon.com/Apple-iPhone-15-Pro/dp/B0DCJ5NMV2?th=1&psc=1
-https://amzn.to/B0DCJ5NMV2
-```
-
-### Test Flow
-
-1. **Paste product URL** → Click "Fetch"
-2. **Select review status** (Yes/No)
-   - If Yes: Adjust sentiment sliders (must total 100%)
-   - If No: Select if similar products reviewed
-3. **Review auto-generated user persona** → Optionally regenerate
-4. **Select purchase history** (Yes/No)
-5. **Select exact product purchase** (Yes/No)
-6. **Click Submit** → Wait ~5-10 seconds
-7. **View summary** in 90% right panel
-8. **Click Survey Sensei pane** → Expands to 90%
-9. **Click vertical "Simulation Summary"** → Returns to default
-10. **Click "Next: Start Survey"** → 3-pane Survey UI
-
-### Database Verification
-
-```sql
--- Check inserted data
-SELECT COUNT(*) FROM products;      -- Should increase by 1-15
-SELECT COUNT(*) FROM users;         -- Should increase by 20-100+
-SELECT COUNT(*) FROM transactions;  -- Should increase by 20-300
-SELECT COUNT(*) FROM reviews;       -- Should increase by 0-50
-
--- Verify embeddings populated
-SELECT item_id, title,
-       vector_dims(embeddings) as dims,
-       embeddings IS NOT NULL as has_embedding
-FROM products
-ORDER BY created_at DESC
-LIMIT 5;
-```
-
-## Performance Benchmarks
+## Performance
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| Amazon scrape (RapidAPI) | 1-3s | With reviews: 2-5s |
-| Mock data generation | 1-3s | Varies by complexity |
-| Database insertion | 0.5-2s | Batch operations |
-| UI transition | 0.5s | Smooth animations |
-| **Total submission** | **5-10s** | End-to-end |
+| Amazon scrape (RapidAPI) | 1-3s | Faster than direct scraping |
+| Mock data generation | 2-5s | Depends on data volume |
+| Persona generation | 1-2s | OpenAI API call |
+| UI transitions | 0.5s | Smooth animations |
 
-## Known Limitations
+## Browser Support
 
-1. **Amazon-Only**: Only Amazon products supported (Walmart/Etsy/eBay removed for reliability)
-2. **Mock Embeddings**: Using deterministic pseudo-random embeddings (Phase 2 will use OpenAI)
-3. **Limited Preset Names**: 21 preset names for user personas
-4. **No Authentication**: Open form (Phase 3 will add auth)
-5. **RapidAPI Limit**: 100 requests/month on free tier (upgrade to Pro for more)
+- Chrome 90+
+- Firefox 88+
+- Safari 14+
+- Edge 90+
 
-## Troubleshooting
+## Resources
 
-### "RapidAPI not configured"
-**Console**: `⚠️ RapidAPI not configured or failed, using direct scraping (may be blocked)`
-
-**Solution**:
-1. Add `RAPIDAPI_KEY=your_key` to `.env.local`
-2. Restart dev server: `npm run dev`
-3. Test with Amazon URL
-
-### "Could not extract ASIN from URL"
-**Error**: URL doesn't contain valid Amazon product ASIN
-
-**Solution**:
-- Use product detail page (not search/category)
-- URL should contain `/dp/` or `/gp/product/` with 10-character ASIN
-- Example: `https://www.amazon.com/dp/B0DCJ5NMV2`
-
-### Build Errors
-```bash
-rm -rf node_modules .next
-npm install
-npm run dev
-```
-
-### Port 3000 in Use
-```bash
-# Windows
-netstat -ano | findstr :3000
-taskkill /PID <PID> /F
-
-# Alternative: Use different port
-npm run dev -- -p 3001
-```
-
-### Database Errors
-- Verify Supabase credentials in `.env.local`
-- Ensure database schema deployed (`database/migrations/001_initial_schema.sql`)
-- Check Supabase logs in dashboard
-
-### Browser Cache Issues
-- Hard refresh: `Ctrl+Shift+R` (Windows) or `Cmd+Shift+R` (Mac)
-- Clear cache completely
-- Check browser console (F12) for errors
-
-## Security Considerations
-
-- ✅ Input validation (URL, sentiment totals, age ranges)
-- ✅ Supabase RLS policies active
-- ✅ Environment variables for secrets (never committed)
-- ✅ HTTPS-only URLs
-- ⚠️ No rate limiting on frontend (add in Phase 3)
-- ⚠️ No authentication (add in Phase 3)
-
-## What Didn't Work (Archive)
-
-### Multi-Platform Scraper (Removed)
-**Attempt**: Support Walmart, Etsy, eBay alongside Amazon
-- **Issue**: Each platform has different HTML structure, active anti-bot measures
-- **Why Failed**: Maintenance overhead too high, unreliable across platforms
-- **Solution**: Focus on Amazon-only with RapidAPI for reliability
-
-### Cheerio Dependency (Removed)
-**Attempt**: Use Cheerio for HTML parsing
-- **Issue**: Added unnecessary dependency, required server-side rendering
-- **Why Failed**: Next.js 14 App Router compatibility issues
-- **Solution**: Pure regex-based extraction with native fetch
-
-### Always-Fetch Reviews (Changed)
-**Attempt**: Always fetch reviews with product details
-- **Issue**: Wasted API calls when product had no reviews
-- **Why Failed**: Hit RapidAPI free tier limits quickly
-- **Solution**: Conditional review fetching based on Field 2 selection
-
-### Modal-Based Summary (Removed)
-**Attempt**: Show summary in modal overlay
-- **Issue**: Required extra clicks, felt disjointed from form flow
-- **Why Failed**: Poor UX, broke visual continuity
-- **Solution**: Horizontal panel transition with minimized form
-
-## Next Steps: Phase 2
-
-### Planned Features
-- Backend agentic system (Python FastAPI)
-- LangChain/LangGraph workflow
-- Real OpenAI embeddings
-- Dynamic survey question generation
-- Sentiment-aware follow-up questions
-- Natural language review generation
-- WebSocket for real-time surveys
-
-### Files to Create
-- `app/survey/[sessionId]/page.tsx`
-- `components/survey/QuestionCard.tsx`
-- `components/survey/ProgressBar.tsx`
-- `app/api/survey/start/route.ts`
-- `app/api/survey/answer/route.ts`
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Tailwind CSS](https://tailwindcss.com/docs)
+- [TypeScript](https://www.typescriptlang.org/docs/)
+- [Supabase JS Client](https://supabase.com/docs/reference/javascript)
 
 ---
 
-**Frontend Version**: 1.2.0
-**Last Updated**: 2025-11-12
-**Status**: Phase 1 Complete ✅
-**Lines of Code**: ~3,000
-**Components**: 11
-**API Endpoints**: 2
+**Frontend Version**: 1.0.0
+**Framework**: Next.js 14.2+
+**Status**: Production Ready

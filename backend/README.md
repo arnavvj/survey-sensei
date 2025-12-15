@@ -1,30 +1,40 @@
-## Survey Sensei Backend - Phase 2
+# Survey Sensei Backend
 
-AI-powered survey generation and review creation backend using LangChain and LangGraph.
+AI-powered survey generation and review creation using LangChain agents and FastAPI.
 
-## Architecture
+## Overview
 
-### Three-Agent System
+The backend orchestrates three specialized LangChain agents to create personalized surveys and generate authentic product reviews based on user context.
 
-1. **Agent 1: PRODUCT_CONTEXT_AGENT** (Stateless LangChain)
-   - Analyzes product reviews and descriptions
-   - Extracts concerns, features, pros/cons
-   - Handles cold start scenarios with similar product analysis
+### Three-Agent Architecture
 
-2. **Agent 2: CUSTOMER_CONTEXT_AGENT** (Stateless LangChain)
-   - Analyzes user purchase and review history
-   - Identifies user concerns and expectations
-   - Segments users by behavior patterns
+**1. ProductContextAgent** (Stateless)
+- Analyzes product reviews, descriptions, and ratings
+- Extracts key features, concerns, pros/cons
+- Handles cold start with similar product analysis
+- Uses vector similarity search (pgvector)
 
-3. **Agent 3: SURVEY_AND_REVIEW_AGENT** (Stateful LangGraph)
-   - Orchestrates Agent 1 and 2
-   - Generates adaptive survey questions
-   - Creates natural language review options
-   - Manages conversation state
+**2. CustomerContextAgent** (Stateless)
+- Analyzes user purchase history and review patterns
+- Identifies customer concerns and expectations
+- Segments users by engagement metrics
+- Leverages similar product purchases via embeddings
 
-## Setup Instructions
+**3. SurveyAgent** (Stateful LangGraph)
+- Orchestrates ProductContext and CustomerContext agents
+- Generates adaptive survey questions (3-7 questions)
+- Manages conversation state and flow
+- Routes to ReviewGenAgent upon completion
 
-### 1. Install Python Dependencies
+**4. ReviewGenAgent** (Stateless)
+- Synthesizes survey responses into review options
+- Generates 3 review alternatives with different tones
+- Creates review titles, text, star ratings
+- Classifies sentiment (good/okay/bad)
+
+## Quick Setup
+
+### 1. Install Dependencies
 
 **Using Conda (Required)**
 
@@ -40,12 +50,11 @@ conda activate survey-sensei
 
 **Why Conda?**
 - Isolated Python 3.11 environment
-- Better dependency management for complex packages (LangChain, sentence-transformers)
-- Reproducible across all platforms (Windows, Linux, macOS)
-- Recommended for both development and deployment
+- Better dependency management for LangChain and ML packages
+- Reproducible across platforms
 - Single source of truth for all dependencies
 
-### 2. Configure Environment Variables
+### 2. Configure Environment
 
 Create `.env.local` file:
 
@@ -53,12 +62,12 @@ Create `.env.local` file:
 cp .env.local.example .env.local
 ```
 
-Edit `.env.local` with your credentials:
+Edit `.env.local`:
 
 ```env
 # Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-secret-key
 
 # OpenAI
 OPENAI_API_KEY=sk-proj-your-openai-key
@@ -69,34 +78,23 @@ FRONTEND_URL=http://localhost:3000
 ENVIRONMENT=development
 ```
 
-### 3. Set Up Database Function
-
-Execute the SQL function in your Supabase SQL Editor:
+### 3. Start Server
 
 ```bash
-# The function is located at:
-database/functions/match_products.sql
-```
-
-This creates the `match_products()` function for vector similarity search.
-
-### 4. Start the Backend Server
-
-```bash
-# Development mode (with auto-reload)
+# Development mode with auto-reload
 python main.py
 
 # Or using uvicorn directly
 uvicorn main:app --reload --port 8000
 ```
 
-The server will start at `http://localhost:8000`
+Server starts at `http://localhost:8000`
 
-### 5. Verify Installation
+### 4. Verify Installation
 
-Visit `http://localhost:8000/docs` to see the interactive API documentation (Swagger UI).
+Visit `http://localhost:8000/docs` for interactive API documentation (Swagger UI).
 
-Test the health endpoint:
+Test health endpoint:
 ```bash
 curl http://localhost:8000/health
 ```
@@ -105,7 +103,7 @@ Expected response:
 ```json
 {
   "status": "healthy",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "environment": "development"
 }
 ```
@@ -113,19 +111,15 @@ Expected response:
 ## API Endpoints
 
 ### POST /api/survey/start
-Start a new survey session
+
+Start a new survey session.
 
 **Request:**
 ```json
 {
   "user_id": "uuid",
-  "item_id": "uuid",
-  "form_data": {
-    "productUrl": "...",
-    "hasReviews": "yes",
-    "userPersona": {...},
-    ...
-  }
+  "item_id": "ASIN",
+  "transaction_id": "uuid"
 }
 ```
 
@@ -134,23 +128,31 @@ Start a new survey session
 {
   "session_id": "uuid",
   "question": {
-    "question_text": "...",
-    "options": ["...", "..."],
-    "reasoning": "..."
+    "question_text": "How would you describe your experience with this product?",
+    "options": ["Excellent", "Good", "Average", "Poor"],
+    "question_type": "multiple_choice"
   },
   "question_number": 1,
-  "total_questions": 3
+  "total_questions_so_far": 1
 }
 ```
 
+**What Happens:**
+1. Creates survey session in database
+2. Invokes ProductContextAgent (analyzes product)
+3. Invokes CustomerContextAgent (analyzes user)
+4. SurveyAgent generates first question
+5. Returns question to user
+
 ### POST /api/survey/answer
-Submit an answer and get next question
+
+Submit answer and get next question.
 
 **Request:**
 ```json
 {
   "session_id": "uuid",
-  "answer": "Selected option text"
+  "answer": "Excellent"
 }
 ```
 
@@ -159,9 +161,13 @@ Submit an answer and get next question
 {
   "session_id": "uuid",
   "status": "continue",
-  "question": {...},
+  "question": {
+    "question_text": "What specific features stood out to you?",
+    "options": ["Battery life", "Sound quality", "Build quality", "Price"],
+    "question_type": "multiple_choice"
+  },
   "question_number": 2,
-  "total_questions": 5
+  "total_questions_so_far": 2
 }
 ```
 
@@ -170,20 +176,73 @@ Submit an answer and get next question
 {
   "session_id": "uuid",
   "status": "completed",
-  "review_options": [
-    {
-      "review_text": "...",
-      "rating": 5,
-      "sentiment": "positive",
-      "tone": "enthusiastic"
-    },
-    ...
-  ]
+  "message": "Survey completed! Proceeding to review generation.",
+  "total_questions": 5
 }
 ```
 
-### POST /api/survey/review
-Submit selected review
+**What Happens:**
+1. Stores answer in survey state
+2. SurveyAgent decides: continue or complete
+3. If continue: generates next question
+4. If complete: saves Q&A to database
+
+### POST /api/survey/generate-reviews
+
+Generate review options from survey responses.
+
+**Request:**
+```json
+{
+  "session_id": "uuid"
+}
+```
+
+**Response:**
+```json
+{
+  "session_id": "uuid",
+  "status": "reviews_generated",
+  "reviews": [
+    {
+      "review_title": "Outstanding Sound Quality and Comfort",
+      "review_text": "I've been using these headphones for a month...",
+      "review_stars": 5,
+      "tone": "enthusiastic",
+      "highlights": ["sound quality", "comfort", "battery life"],
+      "sentiment_band": "good"
+    },
+    {
+      "review_title": "Good Headphones with Minor Issues",
+      "review_text": "Overall satisfied but the noise cancellation could be better...",
+      "review_stars": 4,
+      "tone": "balanced",
+      "highlights": ["value", "comfort"],
+      "sentiment_band": "okay"
+    },
+    {
+      "review_title": "Decent but Overpriced",
+      "review_text": "Expected more for the price point...",
+      "review_stars": 3,
+      "tone": "critical",
+      "highlights": ["price", "features"],
+      "sentiment_band": "okay"
+    }
+  ],
+  "sentiment_band": "good"
+}
+```
+
+**What Happens:**
+1. Retrieves survey state from database
+2. ReviewGenAgent synthesizes responses
+3. Generates 3 review options
+4. Stores review_options in survey_sessions table
+5. Returns reviews to user
+
+### POST /api/survey/submit-review
+
+Save selected review to database.
 
 **Request:**
 ```json
@@ -198,323 +257,288 @@ Submit selected review
 {
   "session_id": "uuid",
   "status": "review_saved",
-  "review": {...}
+  "review_id": "uuid",
+  "message": "Review saved successfully!"
 }
 ```
+
+**What Happens:**
+1. Retrieves selected review from review_options
+2. Inserts into reviews table with source='user_survey'
+3. Marks survey session as complete
+
+## Agent Details
+
+### ProductContextAgent
+
+**Autonomous operation** - queries database directly without form_data dependency.
+
+**Three-Path Decision Logic:**
+
+```
+1. Check product.review_count from database
+   ↓
+2. Path Selection:
+
+   Path 1: Product has reviews (review_count > 0)
+   → Use: Main product reviews + product description
+   → Confidence: 0.70-0.95
+
+   Path 2: No reviews BUT similar products have reviews
+   → Use: Similar product reviews + product description
+   → Vector similarity search (threshold: 0.7)
+   → Confidence: 0.55-0.80
+
+   Path 3: No reviews anywhere
+   → Use: Product description/stats only
+   → Confidence: 0.40-0.50
+```
+
+**Output Schema:**
+```python
+class ProductContext(BaseModel):
+    key_features: List[str]        # Top product features
+    major_concerns: List[str]      # Customer concerns
+    pros: List[str]                # Product advantages
+    cons: List[str]                # Product disadvantages
+    common_use_cases: List[str]    # Typical usage scenarios
+    context_type: str              # "direct_reviews" | "similar_products" | "description_only"
+    confidence_score: float        # 0.0-1.0
+```
+
+**Review Ranking (Path 1):**
+- Recency: 50% (exponential decay, 180-day half-life)
+- Quality: 40% (text length)
+- Diversity: 10% (star rating mix)
+
+**Review Ranking (Path 2):**
+- Similarity: 40% (vector similarity score)
+- Recency: 35% (exponential decay)
+- Quality: 20% (text length)
+- Diversity: 5% (star rating mix)
+
+### CustomerContextAgent
+
+**Autonomous operation** - queries database directly for user_id and item_id.
+
+**Three-Path Decision Logic:**
+
+```
+1. Check user's transaction history for THIS product
+   ↓
+2. Path Selection:
+
+   Path 1: Exact Interaction
+   → User purchased/reviewed THIS product
+   → Confidence: 0.85-0.95
+
+   Path 2: Similar Products
+   → User has similar product purchases (vector search)
+   → Smart ranking: Similarity (45%), Recency (30%), Engagement (25%)
+   → Confidence: 0.55-0.80
+
+   Path 3: Demographics Only
+   → No purchase history
+   → Confidence: 0.35-0.45
+```
+
+**Output Schema:**
+```python
+class CustomerContext(BaseModel):
+    purchase_patterns: List[str]        # Observable behaviors
+    review_behavior: List[str]          # Review patterns
+    product_preferences: List[str]      # Category preferences
+    primary_concerns: List[str]         # Top 3-5 concerns
+    expectations: List[str]             # What user expects
+    pain_points: List[str]              # Recurring frustrations
+    engagement_level: str               # highly_engaged | moderately_engaged | passive_buyer | new_user
+    sentiment_tendency: str             # positive | critical | balanced | polarized | neutral
+    review_engagement_rate: float       # 0.0-1.0
+    context_type: str                   # "exact_interaction" | "similar_products" | "demographics_only"
+    confidence_score: float             # 0.0-1.0
+    data_points_used: int               # Number of transactions analyzed
+```
+
+### SurveyAgent
+
+**Stateful LangGraph agent** - manages multi-turn conversation.
+
+**Workflow:**
+```
+1. Invoke ProductContextAgent + CustomerContextAgent (parallel)
+2. Generate initial question based on contexts
+3. Present question → Await user response
+4. Process answer → Update state
+5. Decide: Continue (generate next question) or Complete
+6. Repeat until 3-7 questions total
+7. Mark survey as complete
+```
+
+**State Management:**
+- In-memory cache during survey
+- Saved to database on completion
+- Retrieved from database for review generation
+
+### ReviewGenAgent
+
+**Autonomous generation** - creates review options from survey responses.
+
+**Input:**
+- Survey responses (Q&A pairs)
+- Product context
+- Customer context
+- User's existing reviews (for writing style)
+- Product title
+
+**Output:**
+```python
+class ReviewOptions(BaseModel):
+    reviews: List[ReviewOption]    # 3 review options
+    sentiment_band: str            # "good" | "okay" | "bad"
+
+class ReviewOption(BaseModel):
+    review_title: str              # 5-10 word title
+    review_text: str               # 50-150 word review
+    review_stars: int              # 1-5
+    tone: str                      # enthusiastic | balanced | critical
+    highlights: List[str]          # Key points emphasized
+```
+
+**Review Generation Strategy:**
+1. Analyzes survey sentiment
+2. Creates 3 variations (enthusiastic, balanced, critical)
+3. Ensures authenticity (mimics user's writing style)
+4. Incorporates specific details from survey
+5. Assigns appropriate star ratings
 
 ## Project Structure
 
 ```
 backend/
 ├── agents/
-│   ├── __init__.py
-│   ├── product_context_agent.py     # Agent 1: Product analysis
-│   ├── customer_context_agent.py    # Agent 2: Customer analysis
-│   └── survey_and_review_agent.py   # Agent 3: Survey orchestration
+│   ├── product_context_agent.py      # Agent 1: Product analysis
+│   ├── customer_context_agent.py     # Agent 2: Customer analysis
+│   ├── survey_agent.py               # Agent 3: Survey orchestration
+│   └── review_gen_agent.py           # Agent 4: Review generation
 ├── database/
-│   ├── __init__.py
-│   └── supabase_client.py            # Database operations
+│   ├── supabase_client.py            # Database operations
+│   ├── migrations/                   # SQL migration files
+│   │   ├── 001_enable_extensions.sql
+│   │   ├── 002_create_products_table.sql
+│   │   ├── 003_create_users_table.sql
+│   │   ├── 004_create_transactions_table.sql
+│   │   ├── 005_create_reviews_table.sql
+│   │   ├── 006_create_survey_sessions_table.sql
+│   │   ├── 007_create_survey_details_table.sql
+│   │   ├── 008_create_triggers.sql
+│   │   └── 009_enable_row_level_security.sql
+│   └── _combined_migrations.sql      # Generated master reset script
+├── integrations/
+│   └── rapidapi_client.py            # Amazon product scraper
 ├── utils/
-│   ├── __init__.py
-│   └── embeddings.py                 # OpenAI embeddings
-├── config.py                          # Configuration management
-├── main.py                            # FastAPI application
-├── requirements.txt                   # Python dependencies
-├── .env.example                       # Environment template
-└── README.md                          # This file
-```
-
-## Agent Workflows
-
-### Agent 1: Product Context
-
-```
-Product has reviews?
-  Yes → Extract from reviews
-  No  → Similar products reviewed?
-          Yes → Use similar product reviews
-          No  → Use product description only
-```
-
-### Agent 2: Customer Context
-
-```
-User purchased similar?
-  Yes → User reviewed them?
-          Yes → Extract from user's reviews
-          No  → Derive from purchase history
-  No  → Use demographic profile
-```
-
-### Agent 3: Survey Flow
-
-```
-1. Invoke Agent 1 + Agent 2 (parallel)
-2. Generate initial 3 questions
-3. Present question → Get answer
-4. Generate 2 follow-up questions
-5. Present question → Get answer
-6. Repeat until 5-10 questions total
-7. Generate 3 review options
-8. Save selected review
+│   └── embeddings.py                 # OpenAI embedding generation
+├── config.py                         # Configuration
+├── main.py                           # FastAPI application
+├── environment.yml                   # Conda dependencies
+└── README.md                         # This file
 ```
 
 ## Configuration
 
-Edit `config.py` to adjust:
-
-- **OpenAI Model**: `gpt-4o-mini` (default, cost-effective) or `gpt-4o`
-- **Temperature**: `0.7` (creativity vs consistency)
-- **Survey Length**: `5-10` questions (min/max)
-- **Review Options**: `3` options to choose from
-- **Similarity Threshold**: `0.7` for vector search
-
-## Development Tips
-
-### Testing Individual Agents
+Edit `config.py` to adjust settings:
 
 ```python
-# Test Agent 1
-from agents import product_context_agent
+# OpenAI Settings
+OPENAI_MODEL = "gpt-4o-mini"     # Cost-effective model
+TEMPERATURE = 0.7                 # Creativity balance
 
-context = product_context_agent.generate_context(
-    product_url="https://amazon.com/...",
-    has_reviews=True,
-    form_data={...}
-)
-print(context)
+# Survey Settings
+MIN_QUESTIONS = 3
+MAX_QUESTIONS = 7
+REVIEW_OPTIONS = 3
+
+# Vector Search
+SIMILARITY_THRESHOLD = 0.7        # Cosine similarity threshold
 ```
-
-```python
-# Test Agent 2
-from agents import customer_context_agent
-
-context = customer_context_agent.generate_context(
-    user_email="user@example.com",
-    product_url="https://amazon.com/...",
-    has_purchased_similar=True,
-    form_data={...}
-)
-print(context)
-```
-
-### Monitoring Costs
-
-Track OpenAI API usage at [platform.openai.com/usage](https://platform.openai.com/usage)
-
-**Estimated costs** (GPT-4o-mini):
-- Survey generation: ~$0.001 per survey
-- 100 surveys/month: ~$0.10
-
-## Logging
-
-Survey Sensei uses structured logging for improved developer experience:
-
-**Backend Logging** ([utils/logger.py](utils/logger.py)):
-- Colored console output with ANSI codes
-- Emojis for quick visual identification (🔍 debug, ✅ info, ⚠️ warning, ❌ error)
-- Minimal single-line logs for reduced verbosity
-- Category-specific logging (🌐 API, 🤖 Agent, 🗄️ Database, 💾 Cache)
-- Automatic request/response logging middleware
-
-**Log Output Examples:**
-```bash
-✅ Cleanup: 156 rows deleted
-🤖 MOCK_PDT_MINI_AGENT: Generating 5 similar products
-✅ Database: 9p 21u 156t 125r inserted
-✅ POST /api/mock-data → 200 (4532ms)
-```
-
-**Usage:**
-```python
-from utils.logger import get_logger
-
-logger = get_logger(__name__)
-
-# Standard logging
-logger.info("Processing started")
-logger.error("Failed to process", error)
-
-# Semantic logging
-logger.api_request("POST", "/api/endpoint", user_id="123")
-logger.database_operation("INSERT", "products", count=10)
-logger.agent_complete("MOCK_PDT_AGENT", "generation", products=5)
-```
-
-## Troubleshooting
-
-### ImportError: No module named 'langchain'
-```bash
-pip install -r requirements.txt
-```
-
-### Supabase connection failed
-- Verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`
-- Check network connectivity to Supabase
-- Ensure service role key (not anon key) is used
-
-### OpenAI API errors
-- Verify `OPENAI_API_KEY` is correct (starts with `sk-proj-`)
-- Check billing and usage limits at OpenAI dashboard
-- Ensure sufficient credits available
-
-### Vector search not working
-- Run the `match_products.sql` function in Supabase SQL Editor
-- Verify pgvector extension is enabled
-- Check that product embeddings exist in database
-
-### Too verbose logging
-- Logging is already minimized with single-line outputs
-- To reduce further, edit `utils/logger.py` and change log level:
-  ```python
-  setup_logging(level="WARNING")  # Only warnings and errors
-  ```
 
 ## Testing
 
-### Quick Start
+### Run All Tests
 
-Run all unit tests (fast, no API key needed):
-
-**Windows**:
+**Windows:**
 ```bash
 run_tests.bat
 ```
 
-**Linux/Mac**:
+**Linux/Mac:**
 ```bash
 chmod +x run_tests.sh
 ./run_tests.sh
 ```
 
-Run with integration tests (requires OpenAI API key):
-
-**Windows**:
-```bash
-run_tests.bat --integration
-```
-
-**Linux/Mac**:
-```bash
-./run_tests.sh --integration
-```
-
-### Test Coverage
-
-The backend includes comprehensive tests:
-
-- ✅ **Agent 1 Tests**: Product context generation (all 3 scenarios)
-- ✅ **Agent 2 Tests**: Customer context generation (all 4 scenarios)
-- ✅ **API Tests**: All endpoints with error handling
-- ✅ **Integration Tests**: Real OpenAI API workflow
-
-**Test Structure**:
-```
-backend/
-├── tests/
-│   ├── test_product_context_agent.py    # Agent 1 (25+ tests)
-│   ├── test_customer_context_agent.py   # Agent 2 (20+ tests)
-│   └── test_api_endpoints.py            # APIs (15+ tests)
-├── conftest.py                           # Shared fixtures
-├── pytest.ini                            # Configuration
-└── run_tests.{sh,bat}                    # Test runners
-```
-
-### Manual Testing
+### Run Specific Tests
 
 ```bash
-# Run specific test file
+# Product Context Agent (48 tests)
 pytest tests/test_product_context_agent.py
 
-# Run specific test
-pytest tests/test_api_endpoints.py::test_start_survey_success
+# Customer Context Agent (20+ tests)
+pytest tests/test_customer_context_agent.py
+
+# API Endpoints (15+ tests)
+pytest tests/test_api_endpoints.py
 
 # Verbose output
 pytest -vv
 
-# With coverage report
+# With coverage
 pytest --cov=agents --cov-report=html
 ```
 
-### Test Categories
+### Test Coverage
 
-**Unit Tests** (Fast, ~5s):
-- Mocked dependencies (no API calls)
-- Test agent logic in isolation
-- 90%+ code coverage
-
-**Integration Tests** (Slow, ~45s):
-- Real OpenAI API calls
-- End-to-end workflows
-- Requires `--run-integration` flag
-
-**Performance**:
 | Test Suite | Tests | Time | Coverage |
 |------------|-------|------|----------|
-| Unit | 25+ | ~5s | 90%+ |
-| Integration | 5+ | ~45s | 95%+ |
-| API | 15+ | ~10s | 85%+ |
+| ProductContextAgent | 48 | ~5s | 95%+ |
+| CustomerContextAgent | 20+ | ~3s | 90%+ |
+| SurveyAgent | 15+ | ~4s | 85%+ |
+| API Endpoints | 15+ | ~10s | 85%+ |
 
-### Viewing Coverage
+### Integration Tests
 
-After running tests, open the HTML report:
+Run with real OpenAI API calls:
 
 ```bash
-# Generated at:
-htmlcov/index.html
+# Windows
+run_tests.bat --integration
+
+# Linux/Mac
+./run_tests.sh --integration
 ```
 
-### Writing Tests
+**Note**: Requires valid `OPENAI_API_KEY` in `.env.local`
 
-Example test structure:
+## Development Commands
 
-```python
-import pytest
-from unittest.mock import patch
-
-@pytest.fixture
-def mock_data():
-    return {"key": "value"}
-
-@patch('agents.product_context_agent.db')
-def test_my_feature(mock_db, mock_data):
-    # Arrange
-    mock_db.get_product.return_value = mock_data
-
-    # Act
-    result = agent.generate_context(...)
-
-    # Assert
-    assert result.context_type == "expected"
-    mock_db.get_product.assert_called_once()
-```
-
-### Troubleshooting Tests
-
-**Import errors**:
 ```bash
-# Install in development mode
-pip install -e .
-```
+# Start server
+python main.py
 
-**Integration test failures**:
-- Check `OPENAI_API_KEY` in `.env`
-- Verify API key is valid
-- Ensure sufficient credits
+# Run tests
+pytest
 
-**Slow tests**:
-```bash
-# Skip integration tests
-pytest  # (default, no --run-integration)
+# Run specific test
+pytest tests/test_product_context_agent.py::test_path1_direct_reviews
 
-# Run in parallel
-pip install pytest-xdist
-pytest -n 4
+# Generate coverage report
+pytest --cov=agents --cov-report=html
+
+# View coverage
+open htmlcov/index.html  # Mac/Linux
+start htmlcov/index.html  # Windows
 ```
 
 ## Conda Environment Management
-
-### Quick Commands
 
 ```bash
 # Create environment
@@ -537,55 +561,85 @@ conda deactivate
 conda env remove -n survey-sensei
 ```
 
-### Adding New Dependencies
+### Adding Dependencies
 
 **Conda packages:**
 ```bash
 conda install -c conda-forge package-name
-# Then add to environment.yml under dependencies
+# Add to environment.yml under dependencies
 ```
 
 **Pip packages:**
 ```bash
 pip install package-name
-# Then add to environment.yml under pip: section
+# Add to environment.yml under pip: section
 ```
 
-### Troubleshooting Conda
+## Troubleshooting
 
-**Environment already exists:**
+### ImportError: No module named 'langchain'
+
 ```bash
-conda env remove -n survey-sensei
-conda env create -f environment.yml
+conda activate survey-sensei
+pip install -r requirements.txt
 ```
 
-**Slow environment creation:**
+### Supabase Connection Failed
+
+- Verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`
+- Ensure service role key (not anon key) is used
+- Check Supabase project is not paused
+
+### OpenAI API Errors
+
+- Verify `OPENAI_API_KEY` starts with `sk-proj-`
+- Check billing at [OpenAI dashboard](https://platform.openai.com/usage)
+- Ensure sufficient credits available
+
+### Vector Search Not Working
+
+- Verify pgvector extension enabled in Supabase
+- Check product embeddings exist in database:
+  ```sql
+  SELECT COUNT(*) FROM products WHERE embeddings IS NOT NULL;
+  ```
+
+### Tests Failing
+
+**Import errors:**
 ```bash
-# Use faster solver
-conda install -c conda-forge mamba
-mamba env create -f environment.yml
+pip install -e .
 ```
 
-**Package conflicts:**
-```bash
-# Update with libmamba solver
-conda env update -f environment.yml --prune --solver=libmamba
-```
+**Integration test failures:**
+- Check `OPENAI_API_KEY` in `.env.local`
+- Verify API key is valid
+- Ensure sufficient credits
 
-## Next Steps
+## Cost Estimation
 
-1. ✅ Backend agents created
-2. ✅ Comprehensive test suite added
-3. ⏳ Test with real data from Phase 1
-4. ⏳ Integrate with frontend Survey UI
-5. ⏳ Fine-tune prompts based on results
-6. ⏳ Deploy to production (Railway/Render)
+Using GPT-4o-mini:
 
-## Support
+| Operation | Cost per Request | Notes |
+|-----------|-----------------|-------|
+| Survey generation | ~$0.001 | ProductContext + CustomerContext + SurveyAgent |
+| Review generation | ~$0.0005 | ReviewGenAgent |
+| **Total per survey** | **~$0.0015** | Complete flow |
+| 100 surveys/month | ~$0.15 | Very cost-effective |
+| 1,000 surveys/month | ~$1.50 | Production scale |
 
-For issues or questions, check:
+Monitor usage at [platform.openai.com/usage](https://platform.openai.com/usage)
+
+## Resources
+
 - [LangChain Docs](https://python.langchain.com/docs/)
 - [LangGraph Docs](https://langchain-ai.github.io/langgraph/)
 - [FastAPI Docs](https://fastapi.tiangolo.com/)
 - [Pytest Docs](https://docs.pytest.org/)
 - [Conda Docs](https://docs.conda.io/)
+
+---
+
+**Backend Version**: 1.0.0
+**Python Version**: 3.11+
+**Status**: Production Ready

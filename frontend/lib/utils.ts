@@ -62,14 +62,20 @@ export function getRandomCity() {
 
 export const MOCK_NAMES = {
   male: [
-    'Arnav Jeurkar', 'James Smith', 'Robert Williams', 'Michael Jones',
-    'William Miller', 'David Rodriguez', 'Richard Hernandez', 'Joseph Gonzalez',
-    'Thomas Anderson', 'Christopher Moore', 'Charles Martin'
+    'James Smith', 'Robert Williams', 'Michael Jones', 'David Rodriguez',
+    'William Miller', 'Richard Hernandez', 'Joseph Gonzalez', 'Thomas Anderson',
+    'Christopher Moore', 'Charles Martin', 'Daniel White', 'Matthew Harris',
+    'Raj Patel', 'Wei Chen', 'Muhammad Ali', 'Carlos Garcia',
+    'Hiroshi Tanaka', 'Ahmed Hassan', 'Liam O\'Brien', 'Marco Rossi',
+    'Yuki Yamamoto', 'Diego Santos', 'Ivan Petrov', 'Jean Dubois'
   ],
   female: [
     'Mary Johnson', 'Patricia Brown', 'Jennifer Garcia', 'Linda Davis',
     'Barbara Martinez', 'Susan Lopez', 'Jessica Wilson', 'Sarah Taylor',
-    'Karen Jackson', 'Nancy Lee'
+    'Karen Jackson', 'Nancy Lee', 'Lisa Anderson', 'Betty Thomas',
+    'Priya Sharma', 'Mei Wang', 'Fatima Khan', 'Maria Rodriguez',
+    'Yuki Sato', 'Amina Ibrahim', 'Emma Murphy', 'Sofia Rossi',
+    'Hana Kim', 'Ana Silva', 'Olga Ivanova', 'Claire Martin'
   ]
 }
 

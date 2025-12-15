@@ -26,6 +26,8 @@ MockDataOrchestrator
 │  Phase 2: MOCK_USR_MINI_AGENT         │  Generate 10-20 mock users
 │  Phase 3: MOCK_TRX_MINI_AGENT         │  Generate transactions (no LLM)
 │  Phase 4: MOCK_RVW_MINI_AGENT         │  Generate reviews from templates + LLM
+│  Phase 5: ENGAGEMENT_METRICS          │  Calculate user engagement metrics
+│  Phase 6: BATCH_EMBEDDINGS            │  Generate embeddings in batches
 └────────────────────────────────────────┘
      ↓
 Database Insertion
@@ -132,15 +134,22 @@ SCENARIO_CONFIGS = {
 **Cost:** ~$0.0002 per 5 products
 
 ### 2. MOCK_USR_MINI_AGENT (`mock_usr_agent.py`)
-**Generates diverse user personas**
+**Generates diverse user personas with engagement metrics**
 
 **Input:**
 - Form data (for main user)
 - Count (default: 15)
 
 **Output:**
-- Main user (from form)
+- Main user (from form) with demographics
 - Mock users with diverse demographics
+- **Engagement metrics calculated post-generation:**
+  - `total_purchases`: Transaction count
+  - `total_reviews`: Review count
+  - `review_engagement_rate`: % of purchases reviewed (0.000-1.000)
+  - `avg_review_rating`: Average star rating (0.00-5.00)
+  - `sentiment_tendency`: positive, critical, balanced, polarized, neutral
+  - `engagement_level`: highly_engaged, moderately_engaged, passive_buyer, new_user
 
 **Cost:** ~$0.0003 per 10 users
 
